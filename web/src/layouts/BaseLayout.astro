@@ -12,14 +12,14 @@ const { title, description } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <SEO title={title} description={description} />
 
-    <!-- Prevent flash of wrong theme -->
+    <!-- 防止主题闪烁 -->
     <script is:inline>
       (function() {
         const stored = localStorage.getItem('theme');

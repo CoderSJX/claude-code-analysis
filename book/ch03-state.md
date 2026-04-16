@@ -1,48 +1,48 @@
-# Chapter 3: State -- The Two-Tier Architecture
+# 第 3 章：状态 - 双层架构
 
-Chapter 2 traced the bootstrap pipeline from process start to first render. By the end, the system had a fully configured environment. But configured with *what*? Where does the session ID live? The current model? The message history? The cost tracker? The permission mode? Where does state live, and why does it live there?
+第 2 章追踪了从进程启动到首次渲染的引导管线。到那一步，系统已经拥有了完整配置的环境。但配置的 *是什么*？会话 ID 放在哪里？当前模型放在哪里？消息历史呢？成本跟踪器呢？权限模式呢？状态应该放在哪里，为什么放在那里？
 
-Every long-running application eventually faces this question. For a simple CLI tool the answer is trivial -- a few variables in `main()`. But Claude Code is not a simple CLI tool. It is a React application rendered through Ink, with a process lifecycle that spans hours, a plugin system that loads at arbitrary times, an API layer that must construct prompts from cached context, a cost tracker that survives process restarts, and dozens of infrastructure modules that need to read and write shared data without importing each other.
+任何长期运行的应用最终都会面对这个问题。对一个简单 CLI 工具来说，答案很直接 - `main()` 里的几个变量就够了。但 Claude Code 不是一个简单 CLI 工具。它是一个通过 Ink 渲染的 React 应用，进程生命周期可能持续数小时，插件系统会在任意时刻加载，API 层必须从缓存上下文构建提示词，成本跟踪器要跨进程重启保持状态，而几十个基础设施模块又需要在彼此不导入的前提下读写共享数据。
 
-The naive approach -- a single global store -- fails immediately. If the cost tracker updated the same store that drives React re-renders, every API call would trigger a full component tree reconciliation. Infrastructure modules (bootstrap, context building, cost tracking, telemetry) cannot import React. They run before React mounts. They run after React unmounts. They run in contexts where no component tree exists at all. Putting everything into a React-aware store would create circular dependencies across the entire import graph.
+天真的做法 - 单一全局存储 - 会立刻失败。如果成本跟踪器更新的是和 React 重渲染共用的那个 store，那么每一次 API 调用都会触发整棵组件树的协调。基础设施模块（引导、上下文构建、成本跟踪、遥测）又不能导入 React。它们在 React 挂载之前运行，也在 React 卸载之后运行，还会在根本没有组件树的上下文里运行。把一切都塞进一个感知 React 的 store，会在整个导入图里制造循环依赖。
 
-Claude Code solves this with a two-tier architecture: a mutable process singleton for infrastructure state, and a minimal reactive store for UI state. This chapter explains both tiers, the side-effect system that bridges them, and the supporting subsystems that depend on this foundation. Every subsequent chapter assumes you understand where state lives and why it lives there.
+Claude Code 用双层架构解决这个问题：一个可变的进程单例负责基础设施状态，一个极简的响应式 store 负责 UI 状态。本章会解释这两层、连接它们的副作用系统，以及依赖这套基础的支撑子系统。后面的每一章都默认你已经理解了状态放在哪里，以及为什么放在那里。
 
 ---
 
-## 3.1 Bootstrap State -- The Process Singleton
+## 3.1 Bootstrap State - 进程单例
 
-### Why a Mutable Singleton
+### 为什么是可变单例
 
-The bootstrap state module (`bootstrap/state.ts`) is a single mutable object created once at process start:
+bootstrap 状态模块 (`bootstrap/state.ts`) 是一个在进程启动时创建的、单一可变对象：
 
 ```typescript
 const STATE: State = getInitialState()
 ```
 
-The comment above this line reads: `AND ESPECIALLY HERE`. Two lines above the type definition: `DO NOT ADD MORE STATE HERE - BE JUDICIOUS WITH GLOBAL STATE`. These comments have the tone of engineers who learned the cost of an ungoverned global object the hard way.
+这一行上方的注释写着：`AND ESPECIALLY HERE`。类型定义上方两行写着：`DO NOT ADD MORE STATE HERE - BE JUDICIOUS WITH GLOBAL STATE`。这些注释的语气很像那些亲手为无约束全局对象付过学费的工程师。
 
-A mutable singleton is the right choice here for three reasons. First, bootstrap state must be available before any framework initializes -- before React mounts, before the store is created, before plugins load. Module-scope initialization is the only mechanism that guarantees availability at import time. Second, the data is inherently process-scoped: session IDs, telemetry counters, cost accumulators, cached paths. There is no meaningful "previous state" to diff against, no subscribers to notify, no undo history. Third, the module must be a leaf in the import dependency graph. If it imported React, or the store, or any service module, it would create cycles that break the bootstrap sequence described in Chapter 2. By depending on nothing but utility types and `node:crypto`, it remains importable from anywhere.
+这里选择可变单例有三个原因。第一，bootstrap 状态必须在任何框架初始化之前就可用 - 在 React 挂载之前、store 创建之前、插件加载之前。模块作用域初始化是唯一能保证在导入时可用的机制。第二，这些数据天然是进程级的：会话 ID、遥测计数器、成本累加器、缓存路径。它们没有有意义的“上一个状态”可以 diff，没有订阅者要通知，也没有撤销历史。第三，这个模块必须是导入依赖图里的叶子节点。如果它导入 React、store 或任何服务模块，就会制造打断第 2 章所述引导序列的循环。因为它除了工具类型和 `node:crypto` 什么都不依赖，所以可以在任何地方导入。
 
-### The ~80 Fields
+### 约 80 个字段
 
-The `State` type contains approximately 80 fields. A sampling reveals the breadth:
+`State` 类型大约包含 80 个字段。随便看几组就能感受到覆盖面：
 
-**Identity and paths** -- `originalCwd`, `projectRoot`, `cwd`, `sessionId`, `parentSessionId`. The `originalCwd` is resolved through `realpathSync` and NFC-normalized at process start. It never changes.
+**身份与路径** - `originalCwd`、`projectRoot`、`cwd`、`sessionId`、`parentSessionId`。`originalCwd` 在进程启动时通过 `realpathSync` 解析并做 NFC 规范化。它永远不会改变。
 
-**Cost and metrics** -- `totalCostUSD`, `totalAPIDuration`, `totalLinesAdded`, `totalLinesRemoved`. These accumulate monotonically through the session and persist to disk on exit.
+**成本与指标** - `totalCostUSD`、`totalAPIDuration`、`totalLinesAdded`、`totalLinesRemoved`。这些值会在整个会话期间单调累加，并在退出时持久化到磁盘。
 
-**Telemetry** -- `meter`, `sessionCounter`, `costCounter`, `tokenCounter`. OpenTelemetry handles, all nullable (null until telemetry initializes).
+**遥测** - `meter`、`sessionCounter`、`costCounter`、`tokenCounter`。这些都是 OpenTelemetry 句柄，且都可为空（遥测初始化前为 null）。
 
-**Model configuration** -- `mainLoopModelOverride`, `initialMainLoopModel`. The override is set when the user changes models mid-session.
+**模型配置** - `mainLoopModelOverride`、`initialMainLoopModel`。当用户在会话中途切换模型时，override 会被写入。
 
-**Session flags** -- `isInteractive`, `kairosActive`, `sessionTrustAccepted`, `hasExitedPlanMode`. Booleans that gate behavior for the session duration.
+**会话标志** - `isInteractive`、`kairosActive`、`sessionTrustAccepted`、`hasExitedPlanMode`。这些布尔值决定整个会话期间的行为。
 
-**Cache optimization** -- `promptCache1hAllowlist`, `promptCache1hEligible`, `systemPromptSectionCache`, `cachedClaudeMdContent`. These exist to prevent redundant computation and prompt cache busting.
+**缓存优化** - `promptCache1hAllowlist`、`promptCache1hEligible`、`systemPromptSectionCache`、`cachedClaudeMdContent`。这些字段用于防止重复计算和提示缓存失效。
 
-### The Getter/Setter Pattern
+### Getter/Setter 模式
 
-The `STATE` object is never exported. All access goes through approximately 100 individual getter and setter functions:
+`STATE` 对象从不直接导出。所有访问都要经过大约 100 个单独的 getter 和 setter 函数：
 
 ```typescript
 // Pseudocode — illustrates the pattern
@@ -55,53 +55,53 @@ export function setProjectRoot(dir: string): void {
 }
 ```
 
-This pattern enforces encapsulation, NFC normalization on every path setter (preventing Unicode mismatches on macOS), type narrowing, and bootstrap isolation. The trade-off is verbosity -- a hundred functions for eighty fields. But in a codebase where a stray mutation could bust a 50,000-token prompt cache, explicitness wins.
+这个模式强制封装、在每个路径 setter 上做 NFC 规范化（防止 macOS 上的 Unicode 不匹配）、类型收窄以及引导隔离。代价是冗长 - 80 个字段配 100 个函数。但在一个稍有不慎就可能打爆 50,000 token 提示缓存的代码库里，明确性胜出。
 
-### The Signal Pattern
+### Signal 模式
 
-Bootstrap cannot import listeners (it is a DAG leaf), so it uses a minimal pub/sub primitive called `createSignal`. The `sessionSwitched` signal has exactly one consumer: `concurrentSessions.ts`, which keeps PID files in sync. The signal is exposed as `onSessionSwitch = sessionSwitched.subscribe`, letting callers register themselves without bootstrap knowing who they are.
+bootstrap 不能导入监听器（它是 DAG 的叶子），所以它使用一个叫 `createSignal` 的极简发布/订阅原语。`sessionSwitched` signal 只有一个消费者：`concurrentSessions.ts`，它负责同步 PID 文件。这个 signal 以 `onSessionSwitch = sessionSwitched.subscribe` 的形式暴露，让调用方可以注册自己，而无需 bootstrap 知道它们是谁。
 
-### The Five Sticky Latches
+### 五个粘性锁存器
 
-The most subtle fields in bootstrap state are five boolean latches that follow the same pattern: once a feature is first activated during a session, a corresponding flag stays `true` for the rest of the session. They all exist for one reason: prompt cache preservation.
+bootstrap 状态里最微妙的字段，是 5 个遵循相同模式的布尔锁存器：一旦某个功能在会话中首次被激活，对应标志在整个会话期间都会保持 `true`。它们存在的唯一原因是：保护提示缓存。
 
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant L as Latch
-    participant C as Cache
+    participant U as 用户
+    participant L as 锁存器
+    participant C as 缓存
 
-    Note over L: Initial: null (not evaluated)
-    U->>L: Activate auto mode (first time)
-    L->>L: Set to true (latched)
-    L->>C: Beta header added to cache key
-    Note over C: Cache warms with header
+    Note over L: 初始：null（尚未评估）
+    U->>L: 首次启用 auto mode
+    L->>L: 设为 true（已锁定）
+    L->>C: beta 头加入 cache key
+    Note over C: 缓存随 header 预热
 
-    U->>L: Deactivate auto mode
-    L->>L: Still true (latched!)
-    L->>C: Header still present
-    Note over C: Cache preserved
+    U->>L: 关闭 auto mode
+    L->>L: 仍然是 true（已锁定！）
+    L->>C: header 仍然存在
+    Note over C: 缓存保持
 
-    U->>L: Reactivate auto mode
-    L->>L: Still true
-    Note over C: No cache bust at any toggle
+    U->>L: 重新启用 auto mode
+    L->>L: 仍然是 true
+    Note over C: 任意切换都不会打爆缓存
 ```
 
-Claude's API supports server-side prompt caching. When consecutive requests share the same system prompt prefix, the server reuses cached computations. But the cache key includes HTTP headers and request body fields. If a beta header appears in request N but not request N+1, the cache is busted -- even if the prompt content is identical. For a system prompt exceeding 50,000 tokens, a cache miss is expensive.
+Claude 的 API 支持服务器端提示缓存。当连续请求共享同一个系统提示前缀时，服务器会复用缓存的计算结果。但缓存键包括 HTTP 头和请求体字段。如果请求 N 带有某个 beta header，而请求 N+1 没有，即使提示内容完全相同，缓存也会失效。对于一个超过 50,000 token 的系统提示，这种缓存失效代价非常高。
 
-The five latches:
+这 5 个锁存器分别是：
 
-| Latch | What It Prevents |
-|-------|-----------------|
-| `afkModeHeaderLatched` | Shift+Tab auto mode toggling flips the AFK beta header on/off |
-| `fastModeHeaderLatched` | Fast mode cooldown enter/exit flips the fast mode header |
-| `cacheEditingHeaderLatched` | Remote feature flag changes bust every active user's cache |
-| `thinkingClearLatched` | Triggered on confirmed cache miss (>1h idle). Prevents re-enabling thinking blocks from busting freshly warmed cache |
-| `pendingPostCompaction` | Consume-once flag for telemetry: distinguishes compaction-induced cache misses from TTL-expiry misses |
+| 锁存器 | 它防止什么 |
+|-------|-------------|
+| `afkModeHeaderLatched` | Shift+Tab 自动模式切换导致 AFK beta header 反复开关 |
+| `fastModeHeaderLatched` | 快速模式冷却进入/退出导致 fast mode header 反复开关 |
+| `cacheEditingHeaderLatched` | 远程特性标记变化导致每个活跃用户的缓存失效 |
+| `thinkingClearLatched` | 在确认缓存未命中（>1h idle）时触发。防止重新启用 thinking blocks 时破坏刚刚热起来的缓存 |
+| `pendingPostCompaction` | 一次性消费标志，用于遥测：区分压缩引起的缓存失效和 TTL 到期导致的失效 |
 
-All five use a three-state type: `boolean | null`. The `null` initial value means "not yet evaluated." `true` means "latched on." They never return to `null` or `false` once set to `true`. This is the defining property of a latch.
+这 5 个都使用同一种三态类型：`boolean | null`。初始值 `null` 表示“尚未评估”。`true` 表示“已经锁定开启”。一旦被设为 `true`，它们就再也不会回到 `null` 或 `false`。这就是锁存器的定义性特征。
 
-The implementation pattern:
+实现模式如下：
 
 ```typescript
 function shouldSendBetaHeader(featureCurrentlyActive: boolean): boolean {
@@ -115,17 +115,17 @@ function shouldSendBetaHeader(featureCurrentlyActive: boolean): boolean {
 }
 ```
 
-Why not just always send all beta headers? Because headers are part of the cache key. Sending an unrecognized header creates a different cache namespace. The latch ensures you only enter a cache namespace when you actually need it, then stay there.
+为什么不直接把所有 beta header 永远都发送出去？因为 header 本身就是缓存键的一部分。发送一个系统不识别的 header，会创建一个不同的缓存命名空间。锁存器确保你只在真正需要时进入某个缓存命名空间，然后在整个会话期间一直留在那里。
 
 ---
 
-## 3.2 AppState -- The Reactive Store
+## 3.2 AppState - 响应式存储
 
-### The 34-Line Implementation
+### 34 行实现
 
-The UI state store lives in `state/store.ts`:
+UI 状态存储位于 `state/store.ts`：
 
-The store implementation is approximately 30 lines: a closure over a `state` variable, an `Object.is` equality check to prevent spurious updates, synchronous listener notification, and an `onChange` callback for side effects. The skeleton looks like:
+这个 store 的实现大约 30 行：一个闭包包住一个 `state` 变量、一个 `Object.is` 相等性检查来避免伪更新、同步监听器通知，以及一个用于副作用的 `onChange` 回调。骨架大致如下：
 
 ```typescript
 // Pseudocode — illustrates the pattern
@@ -140,21 +140,21 @@ function makeStore(initial, onTransition) {
 }
 ```
 
-Thirty-four lines. No middleware, no devtools, no time-travel debugging, no action types. Just a closure over a mutable variable, a Set of listeners, and an `Object.is` equality check. This is Zustand without the library.
+34 行。没有中间件，没有 devtools，没有时间旅行调试，没有 action type。只有一个可变变量的闭包、一个监听器 Set、以及一个 `Object.is` 相等性检查。这就是不带库的 Zustand。
 
-The design decisions worth examining:
+值得关注的设计决策有这些：
 
-**Updater function pattern.** There is no `setState(newValue)` -- only `setState((prev) => next)`. Every mutation receives the current state and must produce the next state, eliminating stale-state bugs from concurrent mutations.
+**更新器函数模式。** 没有 `setState(newValue)`，只有 `setState((prev) => next)`。每一次变更都接收当前状态并必须生成下一状态，从而消除并发修改导致的陈旧状态 bug。
 
-**`Object.is` equality check.** If the updater returns the same reference, the mutation is a no-op. No listeners fire. No side effects run. Critical for performance -- components that spread-and-set without changing values produce no re-renders.
+**`Object.is` 相等性检查。** 如果更新器返回的是同一个引用，这次变更就是 no-op。不会触发监听器，也不会运行副作用。对性能很关键 - 那些只是 spread 一下却没有改变值的组件，不会产生重渲染。
 
-**`onChange` fires before listeners.** The optional `onChange` callback receives both old and new state and fires synchronously before any subscriber is notified. This is used for side effects (Section 3.4) that must complete before the UI re-renders.
+**`onChange` 先于监听器触发。** 可选的 `onChange` 回调同时接收旧状态和新状态，并且在任何订阅者收到通知之前同步触发。它用于那些必须在 UI 重渲染之前完成的副作用（第 3.4 节）。
 
-**No middleware, no devtools.** This is not an oversight. When your store needs exactly three operations (get, set, subscribe), an `Object.is` equality check, and a synchronous `onChange` hook, 34 lines of code you own is better than a dependency. You control the exact semantics. You can read the entire implementation in thirty seconds.
+**没有 middleware，没有 devtools。** 这不是疏漏。当你的 store 只需要三件事（get、set、subscribe），再加一个 `Object.is` 检查和一个同步 `onChange` hook 时，自己写的 34 行代码比一个依赖包更好。你能完全掌控语义，而且 30 秒就能读完实现。
 
-### The AppState Type
+### AppState 类型
 
-The `AppState` type (~452 lines) is the shape of everything the UI needs to render. It is wrapped in `DeepImmutable<>` for most fields, with explicit exclusions for fields containing function types:
+`AppState` 类型（约 452 行）是 UI 渲染所需一切状态的形状。它的大多数字段都包在 `DeepImmutable<>` 里，但包含函数类型的字段会被明确排除：
 
 ```typescript
 export type AppState = DeepImmutable<{
@@ -167,11 +167,11 @@ export type AppState = DeepImmutable<{
 }
 ```
 
-The intersection type lets most fields be deeply immutable while exempting fields that hold functions, Maps, and mutable refs. Full immutability is the default, with surgical escape hatches where the type system would fight the runtime semantics.
+这种交叉类型让大部分字段保持深度不可变，同时为持有函数、Map 和可变 ref 的字段留出豁免。默认是完全不可变，只在类型系统会与运行时语义冲突的地方留有外科手术式的逃生口。
 
-### React Integration
+### React 集成
 
-The store integrates with React through `useSyncExternalStore`:
+store 通过 `useSyncExternalStore` 与 React 集成：
 
 ```typescript
 // Standard React pattern — useSyncExternalStore with a selector
@@ -184,122 +184,122 @@ export function useAppState<T>(selector: (state: AppState) => T): T {
 }
 ```
 
-The selector must return an existing sub-object reference (not a freshly constructed object) for `Object.is` comparison to prevent unnecessary re-renders. If you write `useAppState(s => ({ a: s.a, b: s.b }))`, every render produces a new object reference, and the component re-renders on every state change. This is the same constraint Zustand users face -- cheaper comparisons, but the selector author must understand reference identity.
+selector 必须返回一个已有的子对象引用，而不是新构造的对象，这样 `Object.is` 才能避免不必要的重渲染。如果你写 `useAppState(s => ({ a: s.a, b: s.b }))`，每次渲染都会生成一个新的对象引用，组件就会在每次状态变化时重渲染。这和 Zustand 用户面对的是同一个约束 - 比较更便宜，但 selector 的作者必须理解引用身份。
 
 ---
 
-## 3.3 How the Two Tiers Relate
+## 3.3 两层如何关联
 
-The two tiers communicate through explicit, narrow interfaces.
+这两层通过显式且狭窄的接口通信。
 
 ```mermaid
 graph TD
-    RC["React Components"] -->|subscribe via useSyncExternalStore| AS["AppState Store<br/>(reactive, immutable snapshots)"]
-    AS -->|onChange writes| BS["Bootstrap STATE<br/>(mutable singleton, no dependencies)"]
-    BS -->|reads during init| AS
-    BS -->|read imperatively by| API["API Client"]
-    BS -->|read imperatively by| CT["Cost Tracker"]
-    BS -->|read imperatively by| CB["Context Builder"]
+    RC["React 组件"] -->|通过 useSyncExternalStore 订阅| AS["AppState Store<br/>(响应式、不可变快照)"]
+    AS -->|onChange 写入| BS["Bootstrap STATE<br/>(可变单例、无依赖)"]
+    BS -->|init 期间读取| AS
+    BS -->|被以下模块命令式读取| API["API Client"]
+    BS -->|被以下模块命令式读取| CT["Cost Tracker"]
+    BS -->|被以下模块命令式读取| CB["Context Builder"]
 
     style BS fill:#ffd,stroke:#333
     style AS fill:#dfd,stroke:#333
     style RC fill:#ddf,stroke:#333
 ```
 
-Bootstrap state flows into AppState during initialization: `getDefaultAppState()` reads settings from disk (which bootstrap helped locate), checks feature flags (which bootstrap evaluated), and sets the initial model (which bootstrap resolved from CLI args and settings).
+bootstrap 状态会在初始化过程中流入 AppState：`getDefaultAppState()` 会从磁盘读取设置（这些设置的路径是 bootstrap 帮忙定位的），检查 feature flags（这些标记是 bootstrap 评估的），并设置初始模型（这个模型来自 CLI 参数和设置的解析结果）。
 
-AppState flows back to bootstrap state through side effects: when the user changes the model, `onChangeAppState` calls `setMainLoopModelOverride()` in bootstrap. When settings change, credential caches in bootstrap are cleared.
+AppState 则通过副作用回流到 bootstrap 状态：当用户切换模型时，`onChangeAppState` 会调用 bootstrap 里的 `setMainLoopModelOverride()`。当设置变化时，bootstrap 里的凭证缓存会被清空。
 
-But the two tiers never share a reference. A module that imports bootstrap state does not need to know about React. A component that reads AppState does not need to know about the process singleton.
+但这两层永远不会共享引用。导入 bootstrap 状态的模块不需要知道 React。读取 AppState 的组件也不需要知道进程单例。
 
-A concrete example clarifies the data flow. When the user types `/model claude-sonnet-4`:
+一个具体例子可以说明数据流。用户输入 `/model claude-sonnet-4` 时：
 
-1. The command handler calls `store.setState(prev => ({ ...prev, mainLoopModel: 'claude-sonnet-4' }))`
-2. The store's `Object.is` check detects a change
-3. `onChangeAppState` fires, detects the model changed, calls `setMainLoopModelOverride()` (updates bootstrap) and `updateSettingsForSource()` (persists to disk)
-4. All store subscribers fire -- React components re-render to show the new model name
-5. The next API call reads the model from `getMainLoopModelOverride()` in bootstrap state
+1. 命令处理器调用 `store.setState(prev => ({ ...prev, mainLoopModel: 'claude-sonnet-4' }))`
+2. store 的 `Object.is` 检查检测到变化
+3. `onChangeAppState` 触发，检测到模型变化，调用 `setMainLoopModelOverride()`（更新 bootstrap）以及 `updateSettingsForSource()`（持久化到磁盘）
+4. 所有 store 订阅者触发 - React 组件重新渲染，显示新的模型名
+5. 下一次 API 调用从 bootstrap 状态里的 `getMainLoopModelOverride()` 读取模型
 
-Steps 1-4 are synchronous. The API client in step 5 may run seconds later. But it reads from bootstrap state (updated in step 3), not from AppState. This is the two-tier handoff: the UI store is the source of truth for what the user chose, but bootstrap state is the source of truth for what the API client uses.
+第 1-4 步是同步的。第 5 步的 API 客户端可能在几秒后才运行。但它读取的是 bootstrap 状态（第 3 步已更新），而不是 AppState。这就是双层交接：UI store 是用户所选内容的事实来源，而 bootstrap 状态是 API 客户端实际使用内容的事实来源。
 
-The DAG property -- bootstrap depends on nothing, AppState depends on bootstrap for init, React depends on AppState -- is enforced by an ESLint rule that prevents `bootstrap/state.ts` from importing modules outside its allowed set.
-
----
-
-## 3.4 Side Effects: onChangeAppState
-
-The `onChange` callback is where the two tiers synchronize. Every `setState` call triggers `onChangeAppState`, which receives both previous and new state and decides what external effects to fire.
-
-**Permission mode sync** is the primary use case. Prior to this centralized handler, permission mode was synced to the remote session (CCR) by only 2 of 8+ mutation paths. The other six -- Shift+Tab cycling, dialog options, slash commands, rewind, bridge callbacks -- all mutated AppState without telling CCR. The external metadata drifted out of sync.
-
-The fix: stop scattering notifications across mutation sites and instead hook the diff in one place. The comment in the source code lists every mutation path that was broken and notes that "the scattered callsites above need zero changes." This is the architectural benefit of centralized side effects -- coverage is structural, not manual.
-
-**Model changes** keep bootstrap state in sync with what the UI renders. **Settings changes** clear credential caches and re-apply environment variables. **Verbose toggle** and **expanded view** are persisted to global config.
-
-The pattern -- centralized side effects on a diffable state transition -- is essentially the Observer pattern applied at the granularity of a state diff rather than individual events. It scales better than scattered event emissions because the number of side effects grows much more slowly than the number of mutation sites.
+这个 DAG 属性 - bootstrap 依赖零，AppState 依赖 bootstrap 进行初始化，React 依赖 AppState - 由一条 ESLint 规则强制保证，该规则禁止 `bootstrap/state.ts` 导入允许列表之外的模块。
 
 ---
 
-## 3.5 Context Building
+## 3.4 副作用：onChangeAppState
 
-Three memoized async functions in `context.ts` build the system prompt context prepended to every conversation. Each is computed once per session, not per turn.
+`onChange` 回调是两层同步的地方。每次 `setState` 调用都会触发 `onChangeAppState`，它接收前后状态并决定要触发哪些外部副作用。
 
-`getGitStatus` runs five git commands in parallel (`Promise.all`), producing a block with the current branch, default branch, recent commits, and working tree status. The `--no-optional-locks` flag prevents git from taking write locks that could interfere with concurrent git operations in another terminal.
+**权限模式同步** 是主要用例。在这个集中式处理器出现之前，权限模式通过远程会话（CCR）同步时，只有 8+ 条变更路径里的 2 条会通知它。其余 6 条 - Shift+Tab 循环、对话框选项、斜杠命令、rewind、bridge 回调 - 都在不通知 CCR 的情况下修改了 AppState。外部元数据因此逐渐漂移，变得不同步。
 
-`getUserContext` loads CLAUDE.md content and caches it in bootstrap state via `setCachedClaudeMdContent`. This cache breaks a circular dependency: the auto-mode classifier needs CLAUDE.md content, but CLAUDE.md loading goes through the filesystem, which goes through permissions, which calls the classifier. By caching in bootstrap state (a DAG leaf), the cycle is broken.
+修复方式是：停止在各个变更点散落通知，而是把 diff 钩在一个地方。源码里的注释列出了所有曾经出问题的变更路径，并说明“上面那些分散的 callsite 完全不需要改动”。这就是集中式副作用的架构收益 - 覆盖是结构性的，而不是手工维护的。
 
-All three context functions use Lodash's `memoize` (compute once, cache forever) rather than TTL-based caching. The reasoning: if git status were re-computed every 5 minutes, the change would bust the server-side prompt cache. The system prompt even tells the model: "This is the git status at the start of the conversation. Note that this status is a snapshot in time."
+**模型变化** 会让 bootstrap 状态与 UI 渲染保持一致。**设置变化** 会清空凭证缓存并重新应用环境变量。**verbose 切换** 和 **expanded view** 会持久化到全局配置。
 
----
-
-## 3.6 Cost Tracking
-
-Every API response flows through `addToTotalSessionCost`, which accumulates per-model usage, updates bootstrap state, reports to OpenTelemetry, and recursively processes advisor tool usage (nested model calls within a response).
-
-Cost state survives process restarts through save-and-restore to a project config file. The session ID is used as a guard -- costs are only restored if the persisted session ID matches the session being resumed.
-
-Histograms use reservoir sampling (Algorithm R) to maintain bounded memory while accurately representing distributions. The 1,024-entry reservoir produces p50, p95, and p99 percentiles. Why not a simple running average? Because averages hide distribution shape. A session where 95% of API calls take 200ms and 5% take 10 seconds has the same average as one where all calls take 690ms, but the user experience is radically different.
+这种模式 - 在可 diff 的状态迁移上集中处理副作用 - 本质上就是 Observer 模式，只不过粒度是状态 diff，而不是单个事件。它比散落的事件发射更可扩展，因为副作用数量增长得比变更点数量慢得多。
 
 ---
 
-## 3.7 What We Learned
+## 3.5 上下文构建
 
-The codebase has grown from a simple CLI to a system with ~450 lines of state type definitions, ~80 fields of process state, a side-effect system, multiple persistence boundaries, and cache optimization latches. None of this was designed upfront. The sticky latches were added when cache busting became a measurable cost problem. The `onChange` handler was centralized when 6 of 8 permission sync paths were discovered to be broken. The CLAUDE.md cache was added when a circular dependency emerged.
+`context.ts` 里的三个带缓存的 async 函数会构建每次对话前置到系统提示词中的上下文。每个函数在每个会话里只计算一次，而不是每轮都计算。
 
-This is the natural growth pattern of state in a complex application. The two-tier architecture provides enough structure to contain the growth -- new bootstrap fields do not affect React rendering, new AppState fields do not create import cycles -- while remaining flexible enough to accommodate patterns that were not anticipated in the original design.
+`getGitStatus` 并行运行 5 个 git 命令（`Promise.all`），生成一个包含当前分支、默认分支、最近提交和工作树状态的块。`--no-optional-locks` 参数可以防止 git 获取写锁，从而避免和另一个终端里的并发 git 操作冲突。
+
+`getUserContext` 读取 `CLAUDE.md` 内容，并通过 `setCachedClaudeMdContent` 把它缓存到 bootstrap 状态里。这个缓存打破了一个循环依赖：auto 模式分类器需要 `CLAUDE.md` 内容，但 `CLAUDE.md` 的加载要经过文件系统，而文件系统访问又要经过权限，权限判断又会调用分类器。通过把缓存放到 bootstrap 状态（DAG 叶子），这个循环被打断了。
+
+这三个上下文函数都使用 Lodash 的 `memoize`（计算一次，永久缓存），而不是基于 TTL 的缓存。理由是：如果每 5 分钟重新计算一次 git status，那么这个变化会打破服务器端提示缓存。系统提示词甚至会直接告诉模型：“这是对话开始时的 git status。注意，这个状态只是一个时间点快照。”
 
 ---
 
-## 3.8 State Architecture Summary
+## 3.6 成本跟踪
 
-| Property | Bootstrap State | AppState |
+每一次 API 响应都会经过 `addToTotalSessionCost`，它会累加按模型使用情况、更新 bootstrap 状态、上报到 OpenTelemetry，并递归处理 advisor 工具的使用情况（即响应内部的嵌套模型调用）。
+
+成本状态通过保存并恢复到项目配置文件的方式跨进程重启保留。会话 ID 用作保护条件 - 只有持久化的会话 ID 与正在恢复的会话匹配时，才会恢复成本。
+
+直方图使用 reservoir sampling（算法 R）来维持有界内存，同时准确表示分布。1,024 条目大小的 reservoir 可以生成 p50、p95 和 p99 百分位。为什么不用简单的 running average？因为平均值会掩盖分布形状。一个会话里 95% 的 API 调用要 200ms、5% 要 10 秒，和所有调用都要 690ms 的会话有相同平均值，但用户体验完全不同。
+
+---
+
+## 3.7 我们学到了什么
+
+这个代码库已经从一个简单 CLI 增长成了一个拥有约 450 行状态类型定义、约 80 个进程状态字段、副作用系统、多个持久化边界和缓存优化锁存器的系统。这些都不是一开始设计好的。sticky latches 是在缓存失效变成可测量的成本问题时加上的。`onChange` 处理器是在发现 8 条权限同步路径里有 6 条坏掉时集中起来的。`CLAUDE.md` 缓存是在出现循环依赖时加上的。
+
+这就是复杂应用中状态自然增长的方式。双层架构提供了足够的结构来容纳增长 - 新的 bootstrap 字段不会影响 React 渲染，新的 AppState 字段不会制造导入循环 - 同时又足够灵活，能够容纳原始设计时没有预料到的模式。
+
+---
+
+## 3.8 状态架构总结
+
+| 属性 | Bootstrap State | AppState |
 |---|---|---|
-| **Location** | Module-scope singleton | React context |
-| **Mutability** | Mutable through setters | Immutable snapshots via updater |
-| **Subscribers** | Signal (pub/sub) for specific events | `useSyncExternalStore` for React |
-| **Availability** | Import time (before React) | After provider mounts |
-| **Persistence** | Process exit handlers | Via onChange to disk |
-| **Equality** | N/A (imperative reads) | `Object.is` reference check |
-| **Dependencies** | DAG leaf (imports nothing) | Imports types from across codebase |
-| **Test reset** | `resetStateForTests()` | Create new store instance |
-| **Primary consumers** | API client, cost tracker, context builder | React components, side effects |
+| **位置** | 模块作用域单例 | React context |
+| **可变性** | 通过 setter 可变 | 通过 updater 得到不可变快照 |
+| **订阅者** | 针对特定事件的 signal（发布/订阅） | 供 React 使用的 `useSyncExternalStore` |
+| **可用时机** | 导入时（在 React 之前） | Provider 挂载后 |
+| **持久化** | 通过进程退出处理器 | 通过 onChange 写入磁盘 |
+| **相等性** | N/A（命令式读取） | `Object.is` 引用检查 |
+| **依赖** | DAG 叶子（不导入任何东西） | 从代码库各处导入类型 |
+| **测试重置** | `resetStateForTests()` | 创建新的 store 实例 |
+| **主要消费者** | API client、成本跟踪器、上下文构建器 | React 组件、副作用 |
 
 ---
 
-## Apply This
+## 应用到实践中
 
-**Separate state by access pattern, not by domain.** Session ID belongs in the singleton not because it is "infrastructure" in the abstract, but because it must be readable before React mounts and writable without notifying subscribers. Permission mode belongs in the reactive store because changing it must trigger re-renders and side effects. Let the access pattern drive the tier, and the architecture follows naturally.
+**按访问模式分状态，而不是按领域分状态。** 会话 ID 应该放在单例里，不是因为抽象意义上它属于“基础设施”，而是因为它必须在 React 挂载前可读，并且在不通知订阅者的情况下可写。权限模式应该放在响应式 store 里，因为改变它必须触发重渲染和副作用。让访问模式来决定层级，架构会自然形成。
 
-**The sticky latch pattern.** Any system that interacts with a cache (prompt cache, CDN, query cache) faces the same problem: feature toggles that change the cache key mid-session cause invalidation. Once a feature is activated, its cache key contribution stays active for the session. The three-state type (`boolean | null`, meaning "not evaluated / on / never off") makes the intent self-documenting. Especially valuable when the cache is not under your control.
+**sticky latch 模式。** 任何与缓存交互的系统（提示缓存、CDN、查询缓存）都会遇到同一个问题：中途改变 cache key 的 feature toggle 会导致失效。一旦某个功能被激活，它对 cache key 的贡献在整个会话期间都应该保持激活。三态类型（`boolean | null`，表示“未评估 / 开启 / 从不关闭”）让意图一目了然。尤其适合缓存不由你掌控的场景。
 
-**Centralize side effects on state diffs.** When multiple code paths can change the same state, do not scatter notifications across mutation sites. Hook the store's `onChange` callback and detect which fields changed. Coverage becomes structural (any mutation triggers the effect) rather than manual (each mutation site must remember to notify).
+**把副作用集中在状态 diff 上。** 当多个代码路径都能改同一份状态时，不要在各个变更点散落通知。把 store 的 `onChange` 回调挂起来，检测哪些字段变化了。这样覆盖就是结构性的（任何变更都会触发效果），而不是手工的（每个变更点都要记得通知）。
 
-**Prefer 34 lines you own over a library you do not.** When your requirements are exactly get, set, subscribe, and a change callback, a minimal implementation gives you full control over the semantics. In a system where state management bugs can cost real money, that transparency has value. The key insight is recognizing when you do *not* need a library.
+**优先选择你自己写的 34 行，而不是你不掌控的库。** 当你的需求恰好就是 get、set、subscribe 和一个变更回调时，最小实现能让你完全控制语义。在状态管理 bug 会带来真实金钱成本的系统里，这种透明度很有价值。关键洞见是识别出你什么时候 *不需要* 一个库。
 
-**Use process exit as a persistence boundary with intention.** Multiple subsystems persist state on process exit. The trade-off is explicit: non-graceful termination (SIGKILL, OOM) loses accumulated data. This is acceptable because the data is diagnostic, not transactional, and writing to disk on every state change would be too expensive for counters that increment hundreds of times per session.
+**有意地把进程退出当作持久化边界。** 多个子系统会在进程退出时持久化状态。取舍是明确的：非正常终止（SIGKILL、OOM）会丢失累积数据。但这可以接受，因为这些数据是诊断性的，而不是事务性的；而对那些每个会话会递增几百次的计数器来说，每次状态变化都写磁盘太贵了。
 
 ---
 
-The two-tier architecture established in this chapter -- bootstrap singleton for infrastructure, reactive store for UI, side effects bridging them -- is the foundation that every subsequent chapter builds on. The conversation loop (Chapter 4) reads context from the memoized builders. The tool system (Chapter 5) checks permissions from AppState. The agent system (Chapter 8) creates task entries in AppState while tracking costs in bootstrap state. Understanding where state lives, and why, is prerequisite to understanding how any of these systems work.
+本章建立的双层架构 - 用 bootstrap 单例承载基础设施，用响应式 store 承载 UI，再用副作用把它们桥接起来 - 是后续每一章的基础。对话循环（第 4 章）会从这些带缓存的构建器里读取上下文。工具系统（第 5 章）会从 AppState 里检查权限。代理系统（第 8 章）会在 AppState 里创建任务条目，同时在 bootstrap 状态里跟踪成本。理解状态放在哪里，以及为什么放在那里，是理解这些系统如何工作的前提。
 
-Some fields straddle the boundary. The main loop model exists in both tiers: `mainLoopModel` in AppState (for UI rendering) and `mainLoopModelOverride` in bootstrap state (for API client consumption). The `onChangeAppState` handler keeps them synchronized. This duplication is the cost of the two-tier split. But the alternative -- having the API client import the React store, or having React components read from the process singleton -- would violate the dependency direction that keeps the architecture sound. A small amount of controlled duplication, bridged by a centralized synchronization point, is preferable to a tangled dependency graph.
+有些字段跨越了边界。主循环模型同时存在于两个层：AppState 里的 `mainLoopModel`（用于 UI 渲染）和 bootstrap 状态里的 `mainLoopModelOverride`（供 API client 消费）。`onChangeAppState` 处理器负责让它们同步。这种重复是双层拆分的代价。但与之相对的替代方案 - 让 API client 导入 React store，或者让 React 组件直接读取进程单例 - 会破坏维持架构健康的依赖方向。少量受控重复，再加上一个中心化同步点，远比一张纠缠的依赖图更可取。

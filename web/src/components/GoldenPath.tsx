@@ -25,11 +25,11 @@ interface SequenceMessage {
 // --- Data ---
 
 const participants: Participant[] = [
-  { id: "user", label: "User / REPL", shortLabel: "User" },
-  { id: "query", label: "Query Loop", shortLabel: "Query" },
-  { id: "model", label: "Model API", shortLabel: "Model" },
-  { id: "executor", label: "StreamingToolExecutor", shortLabel: "Executor" },
-  { id: "tools", label: "Tool System", shortLabel: "Tools" },
+  { id: "user", label: "用户 / REPL", shortLabel: "用户" },
+  { id: "query", label: "查询循环", shortLabel: "查询" },
+  { id: "model", label: "模型 API", shortLabel: "模型" },
+  { id: "executor", label: "StreamingToolExecutor", shortLabel: "执行器" },
+  { id: "tools", label: "工具系统", shortLabel: "工具" },
 ];
 
 const sequence: SequenceMessage[] = [
@@ -38,7 +38,7 @@ const sequence: SequenceMessage[] = [
     from: "user",
     to: "query",
     label: "UserMessage",
-    detail: "REPL captures input, wraps as UserMessage, feeds to query loop generator",
+    detail: "REPL 捕获输入，包装为 UserMessage，并交给查询循环生成器",
     terminalText: '> add error handling to the login function\n\n  Thinking...',
     durationMs: 200,
   },
@@ -46,8 +46,8 @@ const sequence: SequenceMessage[] = [
     id: 2,
     from: "query",
     to: "query",
-    label: "Token count check",
-    detail: "Check context window usage. Auto-compact if conversation exceeds budget",
+    label: "Token 数检查",
+    detail: "检查上下文窗口使用量。如果对话超出预算则自动压缩",
     terminalText: '> add error handling to the login function\n\n  Thinking... (context: 12,847 tokens)',
     durationMs: 150,
   },
@@ -55,8 +55,8 @@ const sequence: SequenceMessage[] = [
     id: 3,
     from: "query",
     to: "model",
-    label: "callModel() streams request",
-    detail: "System prompt + memory + conversation history sent to Claude API",
+    label: "callModel() 流式请求",
+    detail: "系统提示词 + 记忆 + 对话历史发送到 Claude API",
     terminalText: '> add error handling to the login function\n\n  Streaming response...',
     durationMs: 300,
   },
@@ -64,8 +64,8 @@ const sequence: SequenceMessage[] = [
     id: 4,
     from: "model",
     to: "query",
-    label: "Tokens stream back",
-    detail: "Response arrives as streaming chunks: text blocks and tool_use blocks interleaved",
+    label: "Token 流式返回",
+    detail: "响应以流式块到达：文本块与 tool_use 块交错返回",
     terminalText: '> add error handling to the login function\n\n  I\'ll read the login function first...',
     durationMs: 400,
   },
@@ -73,8 +73,8 @@ const sequence: SequenceMessage[] = [
     id: 5,
     from: "model",
     to: "executor",
-    label: "Detects tool_use blocks",
-    detail: "StreamingToolExecutor intercepts tool_use blocks mid-stream before response completes",
+    label: "检测 tool_use 块",
+    detail: "StreamingToolExecutor 在响应结束前于流中拦截 tool_use 块",
     terminalText: '> add error handling to the login function\n\n  I\'ll read the login function first...\n  [tool_use: Read /src/auth/login.ts]',
     durationMs: 250,
   },
@@ -82,8 +82,8 @@ const sequence: SequenceMessage[] = [
     id: 6,
     from: "executor",
     to: "tools",
-    label: "Start concurrency-safe tools early",
-    detail: "Read-only tools (Read, Grep) start speculatively while model still streams",
+    label: "提前启动并发安全工具",
+    detail: "只读工具（Read、Grep）会在模型仍在流式输出时推测启动",
     terminalText: '> add error handling to the login function\n\n  Read /src/auth/login.ts (speculative)',
     durationMs: 300,
   },
@@ -91,8 +91,8 @@ const sequence: SequenceMessage[] = [
     id: 7,
     from: "tools",
     to: "executor",
-    label: "Results (may finish before model)",
-    detail: "Tool results queued. If model invalidates the call, results are discarded",
+    label: "结果（可能先于模型完成）",
+    detail: "工具结果入队。如果模型使这次调用失效，结果会被丢弃",
     terminalText: '> add error handling to the login function\n\n  Read /src/auth/login.ts -> 156 lines',
     durationMs: 200,
   },
@@ -100,8 +100,8 @@ const sequence: SequenceMessage[] = [
     id: 8,
     from: "query",
     to: "tools",
-    label: "Execute remaining tools",
-    detail: "Serial/concurrent batch: Validate -> Hooks -> Permissions -> Execute",
+    label: "执行剩余工具",
+    detail: "串行 / 并发批处理：验证 -> 钩子 -> 权限 -> 执行",
     terminalText: '> add error handling to the login function\n\n  Edit /src/auth/login.ts (42 lines changed)',
     durationMs: 350,
   },
@@ -110,7 +110,7 @@ const sequence: SequenceMessage[] = [
     from: "tools",
     to: "query",
     label: "ToolResultMessages",
-    detail: "Results mapped to ContentBlock[], budgeted to per-tool size caps, appended to history",
+    detail: "结果映射为 ContentBlock[]，按每个工具的大小上限计入预算，然后追加到历史记录",
     terminalText: '> add error handling to the login function\n\n  Edit applied. Checking if more changes needed...',
     durationMs: 200,
   },
@@ -118,8 +118,8 @@ const sequence: SequenceMessage[] = [
     id: 10,
     from: "query",
     to: "query",
-    label: "Stop check: loop?",
-    detail: "More tool calls pending? Continue loop. No more calls? Generate final response",
+    label: "停止检查：继续循环？",
+    detail: "还有待处理的工具调用吗？继续循环。没有更多调用吗？生成最终响应",
     isLoopBack: true,
     terminalText: '> add error handling to the login function\n\n  More tool calls detected -> loop continues',
     durationMs: 200,
@@ -128,8 +128,8 @@ const sequence: SequenceMessage[] = [
     id: 11,
     from: "query",
     to: "model",
-    label: "Loop: updated context",
-    detail: "Tool results appended to message history. Model called again with full context",
+    label: "循环：更新后的上下文",
+    detail: "工具结果追加到消息历史中。模型会携带完整上下文再次调用",
     isLoopBack: true,
     terminalText: '> add error handling to the login function\n\n  Re-entering query loop with tool results...',
     durationMs: 300,
@@ -138,8 +138,8 @@ const sequence: SequenceMessage[] = [
     id: 12,
     from: "model",
     to: "query",
-    label: "Final text response",
-    detail: "No more tool_use blocks. Model generates final text response to user",
+    label: "最终文本响应",
+    detail: "不再有 tool_use 块。模型向用户生成最终文本响应",
     terminalText: '> add error handling to the login function\n\n  Done. Added try-catch blocks with specific\n  error types for auth failures, rate limits,\n  and network errors.',
     durationMs: 400,
   },
@@ -147,14 +147,14 @@ const sequence: SequenceMessage[] = [
     id: 13,
     from: "query",
     to: "user",
-    label: "Yield Messages -> render",
-    detail: "Generator yields final messages. REPL renders markdown to terminal via Ink",
+    label: "产出消息 -> 渲染",
+    detail: "生成器产出最终消息。REPL 通过 Ink 将 markdown 渲染到终端",
     terminalText: '> add error handling to the login function\n\n  Done. Added try-catch blocks with specific\n  error types for auth failures, rate limits,\n  and network errors.\n\n  Files changed: /src/auth/login.ts',
     durationMs: 250,
   },
 ];
 
-const TOTAL_DURATION = "~3.2 seconds";
+const TOTAL_DURATION = "~3.2 秒";
 
 // --- Helpers ---
 
@@ -316,7 +316,7 @@ export default function GoldenPath({ className }: Props) {
             transition: "background 0.2s",
           }}
         >
-          {mode === "playing" ? "Stop" : mode === "done" ? "Replay" : "Play"}
+          {mode === "playing" ? "停止" : mode === "done" ? "重播" : "播放"}
         </button>
 
         <button
@@ -336,7 +336,7 @@ export default function GoldenPath({ className }: Props) {
             opacity: mode === "playing" ? 0.5 : 1,
           }}
         >
-          Step
+          步进
         </button>
 
         <button
@@ -354,7 +354,7 @@ export default function GoldenPath({ className }: Props) {
             opacity: mode === "idle" ? 0.5 : 1,
           }}
         >
-          Reset
+          重置
         </button>
 
         <div style={{ flex: 1, minWidth: 20 }} />
@@ -366,8 +366,8 @@ export default function GoldenPath({ className }: Props) {
             color: colors.textSecondary,
           }}
         >
-          {currentStep >= 0 ? `Step ${currentStep + 1}/${sequence.length}` : "Ready"}{" "}
-          &middot; Total: {TOTAL_DURATION}
+          {currentStep >= 0 ? `步骤 ${currentStep + 1}/${sequence.length}` : "就绪"}{" "}
+          &middot; 总时长：{TOTAL_DURATION}
         </span>
       </div>
 
@@ -569,7 +569,7 @@ export default function GoldenPath({ className }: Props) {
                   color: "#87867f",
                 }}
               >
-                Terminal
+                终端
               </span>
             </div>
             {/* Terminal body */}
@@ -628,10 +628,10 @@ export default function GoldenPath({ className }: Props) {
                   fontFamily: "var(--font-mono)",
                 }}
               >
-                Golden path complete
+                黄金路径完成
               </div>
               <div style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
-                13 messages, 1 tool loop iteration, {TOTAL_DURATION} end-to-end
+                13 条消息，1 次工具循环迭代，端到端 {TOTAL_DURATION}
               </div>
             </div>
             <div
@@ -644,7 +644,7 @@ export default function GoldenPath({ className }: Props) {
                 background: isDark ? "rgba(217, 119, 87, 0.15)" : "rgba(217, 119, 87, 0.12)",
               }}
             >
-              Generator yielded Terminal.Success
+              生成器返回 Terminal.Success
             </div>
           </motion.div>
         )}

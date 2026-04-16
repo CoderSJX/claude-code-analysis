@@ -11,9 +11,9 @@ interface Preset {
 }
 
 const presets: Preset[] = [
-  { label: "Code review (3 agents)", prefixTokens: 60000, uniqueTokens: 8000, children: 3 },
-  { label: "Large refactor (10 agents)", prefixTokens: 100000, uniqueTokens: 5000, children: 10 },
-  { label: "Test suite (15 agents)", prefixTokens: 80000, uniqueTokens: 3000, children: 15 },
+  { label: "代码审查（3 个智能体）", prefixTokens: 60000, uniqueTokens: 8000, children: 3 },
+  { label: "大型重构（10 个智能体）", prefixTokens: 100000, uniqueTokens: 5000, children: 10 },
+  { label: "测试套件（15 个智能体）", prefixTokens: 80000, uniqueTokens: 3000, children: 15 },
 ];
 
 // --- Hooks ---
@@ -187,7 +187,7 @@ export default function PromptCacheCalculator({ className }: Props) {
             fontFamily: "var(--font-mono)",
           }}
         >
-          Presets:
+          预设：
         </span>
         {presets.map((preset) => (
           <button
@@ -238,7 +238,7 @@ export default function PromptCacheCalculator({ className }: Props) {
         >
           <div style={sliderGroupStyle}>
             <div style={labelStyle}>
-              <span>Shared prefix size</span>
+              <span>共享前缀大小</span>
               <span style={valueStyle}>
                 {(prefixTokens / 1000).toFixed(0)}K tokens
               </span>
@@ -256,7 +256,7 @@ export default function PromptCacheCalculator({ className }: Props) {
 
           <div style={sliderGroupStyle}>
             <div style={labelStyle}>
-              <span>Per-child unique tokens</span>
+              <span>每个子任务的独立 token</span>
               <span style={valueStyle}>
                 {(uniqueTokens / 1000).toFixed(0)}K tokens
               </span>
@@ -274,7 +274,7 @@ export default function PromptCacheCalculator({ className }: Props) {
 
           <div style={sliderGroupStyle}>
             <div style={labelStyle}>
-              <span>Number of children</span>
+          <span>子任务数量</span>
               <span style={valueStyle}>{children}</span>
             </div>
             <input
@@ -290,7 +290,7 @@ export default function PromptCacheCalculator({ className }: Props) {
 
           <div style={sliderGroupStyle}>
             <div style={labelStyle}>
-              <span>Input token price</span>
+              <span>输入 token 价格</span>
               <span style={valueStyle}>${inputPrice}/1M</span>
             </div>
             <input
@@ -306,7 +306,7 @@ export default function PromptCacheCalculator({ className }: Props) {
 
           <div style={sliderGroupStyle}>
             <div style={labelStyle}>
-              <span>Cache hit price</span>
+              <span>缓存命中价格</span>
               <span style={valueStyle}>${cachePrice}/1M</span>
             </div>
             <input
@@ -335,7 +335,7 @@ export default function PromptCacheCalculator({ className }: Props) {
                 letterSpacing: 1,
               }}
             >
-              Cost Comparison
+              成本对比
             </div>
 
             {/* Without cache bar */}
@@ -349,7 +349,7 @@ export default function PromptCacheCalculator({ className }: Props) {
                   color: colors.textSecondary,
                 }}
               >
-                <span>Without cache</span>
+                <span>不使用缓存</span>
                 <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>
                   {formatDollars(animWithout)}
                 </span>
@@ -387,7 +387,7 @@ export default function PromptCacheCalculator({ className }: Props) {
                   color: colors.text,
                 }}
               >
-                <span>With cache sharing</span>
+                <span>使用缓存共享</span>
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
@@ -451,7 +451,7 @@ export default function PromptCacheCalculator({ className }: Props) {
                 marginTop: 2,
               }}
             >
-              saved ({formatDollars(animSavings)})
+              已节省（{formatDollars(animSavings)}）
             </div>
           </div>
 
@@ -468,17 +468,17 @@ export default function PromptCacheCalculator({ className }: Props) {
             }}
           >
             <div>
-              <span style={{ opacity: 0.7 }}>No cache:</span>{" "}
+              <span style={{ opacity: 0.7 }}>不使用缓存：</span>{" "}
               {children} x ({(prefixTokens / 1000).toFixed(0)}K + {(uniqueTokens / 1000).toFixed(0)}K) x ${inputPrice}/1M
             </div>
             <div>
-              <span style={{ opacity: 0.7 }}>Cached:</span>{" "}
-              1 full + {Math.max(0, children - 1)} cached prefix + {children} unique
+              <span style={{ opacity: 0.7 }}>已缓存：</span>{" "}
+              1 次完整 + {Math.max(0, children - 1)} 次缓存前缀 + {children} 个独立部分
             </div>
             <div style={{ marginTop: 6, color: colors.text, fontSize: 11 }}>
               {children <= 1
-                ? "Add more children to see cache savings."
-                : `Cache sharing pays off with N >= 2 children.`}
+                ? "增加更多子任务后，才能看到缓存节省。"
+                : `当子任务数 N >= 2 时，缓存共享才开始显著省钱。`}
             </div>
           </div>
         </div>

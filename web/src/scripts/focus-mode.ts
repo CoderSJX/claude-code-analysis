@@ -1,4 +1,4 @@
-// Focus mode: toggle sidebar and TOC visibility for distraction-free reading
+// 专注模式：切换侧边栏和目录可见性，便于无干扰阅读
 const layout = document.getElementById('chapter-layout');
 const sidebar = document.getElementById('sidebar');
 const toc = document.querySelector('aside');
@@ -19,7 +19,7 @@ function applyFocusMode(active: boolean) {
   }
 }
 
-// Restore from localStorage
+// 从 localStorage 恢复
 const stored = localStorage.getItem('focus-mode');
 if (stored === 'true') {
   applyFocusMode(true);

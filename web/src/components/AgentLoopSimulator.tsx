@@ -31,49 +31,48 @@ function StepVisual({ children }: { children: React.ReactNode }) {
 const steps: Step[] = [
   {
     id: 1,
-    title: "Receive Input",
-    shortTitle: "Input",
+    title: "接收输入",
+    shortTitle: "输入",
     description:
-      "The loop begins when a user sends a message or when tool results from the previous iteration arrive. These become the new messages appended to the conversation history.",
+      "当用户发送消息，或者上一轮的工具结果返回时，循环就开始。它们会成为追加到对话历史里的新消息。",
     visual: (
       <StepVisual>
-        <div style={{ opacity: 0.5, marginBottom: 4 }}>// new messages</div>
+        <div style={{ opacity: 0.5, marginBottom: 4 }}>// 新消息</div>
         <div>
           {"{"} role: <span style={{ color: "#d97757" }}>"user"</span>, content:{" "}
-          <span style={{ color: "#d97757" }}>"Read the config file"</span> {"}"}
+          <span style={{ color: "#d97757" }}>"读取配置文件"</span> {"}"}
         </div>
       </StepVisual>
     ),
   },
   {
     id: 2,
-    title: "Context Management",
-    shortTitle: "Context",
+    title: "上下文管理",
+    shortTitle: "上下文",
     description:
-      "Before calling the model, the system checks token usage. If the conversation is too long, compression layers kick in: tool result budgeting, snip compaction, or full summarization.",
+      "在调用模型之前，系统会检查 Token 用量。如果对话太长，就会启用压缩层：工具结果预算、snip 压缩，或者完整摘要。",
     visual: (
       <StepVisual>
         <div>
-          tokens used: <strong>142,800</strong> / 200,000
+          已用 token：<strong>142,800</strong> / 200,000
         </div>
         <div style={{ color: "#22c55e", marginTop: 4 }}>
-          Under threshold (80%). No compression needed.
+          低于阈值（80%），无需压缩。
         </div>
       </StepVisual>
     ),
   },
   {
     id: 3,
-    title: "Stream to Model",
-    shortTitle: "Stream",
+    title: "流向模型",
+    shortTitle: "流式",
     description:
-      "The full message array is sent to the Claude API. Response tokens stream back in real-time. The system processes each chunk as it arrives, building up text and tool_use blocks.",
+      "完整消息数组会发送给 Claude API。响应 Token 会实时流回。系统在每个 chunk 到达时处理它，逐步构建文本和 tool_use 块。",
     visual: (
       <StepVisual>
-        <div style={{ opacity: 0.5 }}>// streaming response...</div>
+        <div style={{ opacity: 0.5 }}>// 流式响应中...</div>
         <div style={{ marginTop: 4 }}>
-          <span style={{ color: "#87867f" }}>{">"}</span> Let me read that
-          config file for you
+          <span style={{ color: "#87867f" }}>{">"}</span> 我来帮你读取配置文件
           <span
             style={{
               display: "inline-block",
@@ -92,17 +91,17 @@ const steps: Step[] = [
   },
   {
     id: 4,
-    title: "Parse Response",
-    shortTitle: "Parse",
+    title: "解析响应",
+    shortTitle: "解析",
     description:
-      "Once streaming completes, the response is parsed into content blocks. Text blocks become visible output. tool_use blocks are extracted with their names, IDs, and input parameters.",
+      "流式输出结束后，响应会被解析为内容块。文本块成为可见输出，tool_use 块会提取出名称、ID 和输入参数。",
     visual: (
       <StepVisual>
         <div>
           blocks: [<br />
           &nbsp;&nbsp;{"{"} type:{" "}
-          <span style={{ color: "#87867f" }}>"text"</span>, text: "Let me
-          read..." {"}"},<br />
+          <span style={{ color: "#87867f" }}>"text"</span>, text: "让我
+          看看..." {"}"},<br />
           &nbsp;&nbsp;{"{"} type:{" "}
           <span style={{ color: "#d97757" }}>"tool_use"</span>, name: "Read",
           <br />
@@ -115,10 +114,10 @@ const steps: Step[] = [
   },
   {
     id: 5,
-    title: "Execute Tools",
-    shortTitle: "Tools",
+    title: "执行工具",
+    shortTitle: "工具",
     description:
-      "Tool calls are executed through a 14-step pipeline. Read-only tools (Read, Glob, Grep) run in parallel. Write tools (Edit, Write, Bash) run serially. Each goes through permission checks.",
+      "工具调用会经过 14 步流水线执行。只读工具（Read、Glob、Grep）并行运行。写入工具（Edit、Write、Bash）串行运行。每一步都会经过权限检查。",
     visual: (
       <StepVisual>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -134,7 +133,7 @@ const steps: Step[] = [
               }}
             />
             Read("./config.ts")
-            <span style={{ color: "#22c55e", marginLeft: 8 }}>running</span>
+            <span style={{ color: "#22c55e", marginLeft: 8 }}>运行中</span>
           </div>
           <div>
             <span
@@ -148,10 +147,10 @@ const steps: Step[] = [
               }}
             />
             Glob("**/*.json")
-            <span style={{ color: "#22c55e", marginLeft: 8 }}>running</span>
+            <span style={{ color: "#22c55e", marginLeft: 8 }}>运行中</span>
           </div>
           <div style={{ opacity: 0.5, fontSize: 11, marginTop: 2 }}>
-            read-only tools execute in parallel
+            只读工具并行执行
           </div>
         </div>
       </StepVisual>
@@ -159,10 +158,10 @@ const steps: Step[] = [
   },
   {
     id: 6,
-    title: "Collect Results",
-    shortTitle: "Results",
+    title: "收集结果",
+    shortTitle: "结果",
     description:
-      "Tool outputs are gathered and formatted as tool_result messages. Large outputs are truncated to fit within the per-message token budget. Results are paired with their tool_use IDs.",
+      "工具输出会被收集并格式化为 tool_result 消息。大输出会被截断，以适配每条消息的 Token 预算。结果会与对应的 tool_use ID 绑定。",
     visual: (
       <StepVisual>
         <div>
@@ -183,28 +182,28 @@ const steps: Step[] = [
   },
   {
     id: 7,
-    title: "Post-Processing",
+    title: "后处理",
     shortTitle: "Hooks",
     description:
-      "PostToolUse hooks fire, allowing extensions to inspect or modify results. The system checks stop conditions: did a hook request early termination? Did the model hit a stop sequence?",
+      "PostToolUse hooks 会触发，允许扩展检查或修改结果。系统还会检查停止条件：是否有 hook 请求提前终止？模型是否命中了 stop sequence？",
     visual: (
       <StepVisual>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div>
-            PostToolUse hooks:{" "}
-            <span style={{ color: "#22c55e" }}>2 registered</span>
+            PostToolUse hooks：{" "}
+            <span style={{ color: "#22c55e" }}>已注册 2 个</span>
           </div>
           <div>
             &nbsp;&nbsp;block-any-type.ts{" "}
-            <span style={{ color: "#22c55e" }}>passed</span>
+            <span style={{ color: "#22c55e" }}>通过</span>
           </div>
           <div>
             &nbsp;&nbsp;auto-compact.ts{" "}
-            <span style={{ color: "#22c55e" }}>passed</span>
+            <span style={{ color: "#22c55e" }}>通过</span>
           </div>
           <div style={{ marginTop: 4 }}>
-            Stop conditions:{" "}
-            <span style={{ color: "#87867f" }}>none triggered</span>
+            停止条件：{" "}
+            <span style={{ color: "#87867f" }}>未触发</span>
           </div>
         </div>
       </StepVisual>
@@ -212,10 +211,10 @@ const steps: Step[] = [
   },
   {
     id: 8,
-    title: "Decision",
-    shortTitle: "Decide",
+    title: "决策",
+    shortTitle: "决策",
     description:
-      "The model examines its response. If there are pending tool calls, it loops back to step 1 with the tool results. If it has enough information, it produces a final text response and exits.",
+      "模型会检查自己的响应。如果还有待处理的工具调用，它会带着工具结果回到第 1 步；如果信息足够，就输出最终文本并结束。",
     visual: null, // handled specially
   },
 ];
@@ -346,7 +345,7 @@ export default function AgentLoopSimulator({ className }: Props) {
             color: colors.textMuted,
           }}
         >
-          Iteration {iteration}
+          第 {iteration} 轮
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <label
@@ -369,7 +368,7 @@ export default function AgentLoopSimulator({ className }: Props) {
               }}
               style={{ accentColor: colors.active }}
             />
-            auto-play
+            自动播放
           </label>
         </div>
       </div>
@@ -480,7 +479,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 marginBottom: 8,
               }}
             >
-              The Agent Loop
+              智能体循环
             </div>
             <div
               style={{
@@ -492,9 +491,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 lineHeight: 1.6,
               }}
             >
-              Step through one iteration of Claude Code's core loop. Each
-              iteration receives input, calls the model, executes tools, and
-              decides whether to continue or respond.
+              逐步查看 Claude Code 核心循环的一次迭代。每轮都会接收输入、调用模型、执行工具，并决定继续还是回复。
             </div>
             <button
               onClick={() => setCurrentStep(1)}
@@ -510,7 +507,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 fontFamily: "var(--font-mono)",
               }}
             >
-              Start Loop
+              开始循环
             </button>
           </motion.div>
         ) : activeStep && currentStep !== 8 ? (
@@ -537,7 +534,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 letterSpacing: "0.05em",
               }}
             >
-              Step {activeStep.id} of 8
+              第 {activeStep.id} 步，共 8 步
             </div>
             <div
               style={{
@@ -586,7 +583,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 letterSpacing: "0.05em",
               }}
             >
-              Step 8 of 8
+              第 8 步，共 8 步
             </div>
             <div
               style={{
@@ -596,7 +593,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                 marginBottom: 10,
               }}
             >
-              Decision
+              决策
             </div>
             <div
               style={{
@@ -641,7 +638,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                       fill="currentColor"
                     />
                   </svg>
-                  Loop back (more tool calls)
+                  回到循环（还有工具调用）
                 </button>
                 <button
                   onClick={() => handleDecision("exit")}
@@ -675,7 +672,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                       strokeLinejoin="round"
                     />
                   </svg>
-                  Exit (respond to user)
+                  退出（回复用户）
                 </button>
               </div>
             ) : (
@@ -701,8 +698,8 @@ export default function AgentLoopSimulator({ className }: Props) {
                   }}
                 >
                   {decision === "loop"
-                    ? "Iteration complete -- looping back to step 1"
-                    : "Iteration complete -- responding to user"}
+                    ? "本轮完成 - 返回第 1 步"
+                    : "本轮完成 - 正在回复用户"}
                 </div>
                 <div
                   style={{
@@ -711,8 +708,8 @@ export default function AgentLoopSimulator({ className }: Props) {
                   }}
                 >
                   {decision === "loop"
-                    ? `The model needs more information. Starting iteration ${iteration + 1}...`
-                    : "The model has gathered enough information and is producing a final response."}
+                    ? `模型还需要更多信息。开始第 ${iteration + 1} 轮...`
+                    : "模型已收集到足够信息，正在生成最终回复。"}
                 </div>
                 {decision === "exit" && (
                   <button
@@ -729,7 +726,7 @@ export default function AgentLoopSimulator({ className }: Props) {
                       fontFamily: "var(--font-mono)",
                     }}
                   >
-                    Start over
+                    重新开始
                   </button>
                 )}
               </motion.div>
@@ -763,7 +760,7 @@ export default function AgentLoopSimulator({ className }: Props) {
               opacity: currentStep <= 1 ? 0.4 : 1,
             }}
           >
-            Previous
+            上一步
           </button>
           <button
             onClick={handleReset}
@@ -778,7 +775,7 @@ export default function AgentLoopSimulator({ className }: Props) {
               textUnderlineOffset: 3,
             }}
           >
-            Reset
+            重置
           </button>
           <button
             onClick={handleNext}
@@ -797,7 +794,7 @@ export default function AgentLoopSimulator({ className }: Props) {
               opacity: currentStep >= 8 ? 0.4 : 1,
             }}
           >
-            Next Step
+            下一步
           </button>
         </div>
       )}

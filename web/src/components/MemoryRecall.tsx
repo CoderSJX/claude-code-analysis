@@ -33,89 +33,89 @@ const memoryTypeColors: Record<MemoryType, { color: string; bg: string; label: s
   user: {
     color: "#60a5fa",
     bg: "rgba(96, 165, 250, 0.12)",
-    label: "User",
+    label: "用户",
   },
   feedback: {
     color: "#d97757",
     bg: "rgba(217, 119, 87, 0.12)",
-    label: "Feedback",
+    label: "反馈",
   },
   project: {
     color: "#4ade80",
     bg: "rgba(74, 222, 128, 0.12)",
-    label: "Project",
+    label: "项目",
   },
   reference: {
     color: "#a78bfa",
     bg: "rgba(167, 139, 250, 0.12)",
-    label: "Reference",
+    label: "参考",
   },
 };
 
 const queryPresets: QueryPreset[] = [
   {
-    query: "How do I set up the database?",
+    query: "我该如何设置数据库？",
     memories: [
       {
         filename: "feedback_testing.md",
-        name: "Testing Policy",
-        description: "Integration tests must hit real DB, not mocks",
+        name: "测试策略",
+        description: "集成测试必须连接真实数据库，不能用 mock",
         type: "feedback",
         age: "3 days",
         selected: true,
       },
       {
         filename: "reference_drizzle.md",
-        name: "Drizzle Setup",
-        description: "Drizzle ORM config, migration commands, studio URL",
+        name: "Drizzle 配置",
+        description: "Drizzle ORM 配置、迁移命令、Studio 地址",
         type: "reference",
         age: "2 weeks",
         selected: true,
       },
       {
         filename: "user_role.md",
-        name: "Developer Role",
-        description: "Senior backend engineer, prefers concise explanations",
+        name: "开发者角色",
+        description: "资深后端工程师，偏好简洁说明",
         type: "user",
         age: "1 month",
         selected: false,
       },
       {
         filename: "project_migration.md",
-        name: "DB Migration",
-        description: "Currently migrating from Prisma to Drizzle ORM",
+        name: "数据库迁移",
+        description: "当前正从 Prisma 迁移到 Drizzle ORM",
         type: "project",
         age: "5 days",
         selected: true,
       },
       {
         filename: "feedback_schemas.md",
-        name: "Schema Conventions",
-        description: "Always use camelCase columns, snake_case table names",
+        name: "Schema 约定",
+        description: "列名始终用 camelCase，表名始终用 snake_case",
         type: "feedback",
         age: "2 weeks",
         selected: false,
       },
       {
         filename: "reference_aws.md",
-        name: "AWS Config",
-        description: "RDS instance details, connection strings, IAM roles",
+        name: "AWS 配置",
+        description: "RDS 实例详情、连接串、IAM 角色",
         type: "reference",
         age: "3 weeks",
         selected: false,
       },
       {
         filename: "project_sprint.md",
-        name: "Current Sprint",
-        description: "Auth module refactor, deadline March 15",
+        name: "当前冲刺",
+        description: "认证模块重构，截止日期 3 月 15 日",
         type: "project",
         age: "1 week",
         selected: false,
       },
       {
         filename: "feedback_env.md",
-        name: "Env Variables",
-        description: "Never commit .env files, use vault for secrets",
+        name: "环境变量",
+        description: "永远不要提交 .env 文件，密钥请使用 vault",
         type: "feedback",
         age: "6 days",
         selected: false,
@@ -128,7 +128,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "feedback_style.md",
         name: "Code Style",
-        description: "Use Biome for formatting, no semicolons, 2-space indent",
+        description: "使用 Biome 格式化，不使用分号，2 空格缩进",
         type: "feedback",
         age: "2 days",
         selected: true,
@@ -136,7 +136,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "feedback_testing.md",
         name: "Testing Policy",
-        description: "Integration tests must hit real DB, not mocks",
+        description: "集成测试必须连接真实数据库，不能用 mock",
         type: "feedback",
         age: "3 days",
         selected: true,
@@ -144,7 +144,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "feedback_naming.md",
         name: "Naming Conventions",
-        description: "camelCase for functions, PascalCase for components/types",
+        description: "函数用 camelCase，组件和类型用 PascalCase",
         type: "feedback",
         age: "1 week",
         selected: true,
@@ -152,7 +152,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "user_role.md",
         name: "Developer Role",
-        description: "Senior backend engineer, prefers concise explanations",
+        description: "资深后端工程师，偏好简洁说明",
         type: "user",
         age: "1 month",
         selected: false,
@@ -160,7 +160,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "reference_drizzle.md",
         name: "Drizzle Setup",
-        description: "Drizzle ORM config, migration commands, studio URL",
+        description: "Drizzle ORM 配置、迁移命令、Studio 地址",
         type: "reference",
         age: "2 weeks",
         selected: false,
@@ -168,7 +168,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "project_migration.md",
         name: "DB Migration",
-        description: "Currently migrating from Prisma to Drizzle ORM",
+        description: "当前正从 Prisma 迁移到 Drizzle ORM",
         type: "project",
         age: "5 days",
         selected: false,
@@ -176,7 +176,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "feedback_schemas.md",
         name: "Schema Conventions",
-        description: "Always use camelCase columns, snake_case table names",
+        description: "列名始终用 camelCase，表名始终用 snake_case",
         type: "feedback",
         age: "2 weeks",
         selected: true,
@@ -184,7 +184,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "feedback_env.md",
         name: "Env Variables",
-        description: "Never commit .env files, use vault for secrets",
+        description: "永远不要提交 .env 文件，密钥请使用 vault",
         type: "feedback",
         age: "6 days",
         selected: false,
@@ -197,7 +197,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "project_sprint.md",
         name: "Current Sprint",
-        description: "Auth module refactor, deadline March 15",
+        description: "认证模块重构，截止日期 3 月 15 日",
         type: "project",
         age: "1 week",
         selected: true,
@@ -213,7 +213,7 @@ const queryPresets: QueryPreset[] = [
       {
         filename: "project_team.md",
         name: "Team Assignments",
-        description: "Alex on auth, Sara on billing, Dev on frontend",
+        description: "Alex 负责认证，Sara 负责计费，Dev 负责前端",
         type: "project",
         age: "4 days",
         selected: true,
@@ -269,28 +269,28 @@ const pipelineStages: {
 }[] = [
   {
     id: "prefetch",
-    label: "Prefetch fires",
-    description: "Async, parallel to user query processing",
+    label: "预取触发",
+    description: "异步执行，与用户查询处理并行",
   },
   {
     id: "manifest",
-    label: "Build manifest",
-    description: "scanMemoryFiles reads all .md files, parses frontmatter (30 lines max)",
+    label: "构建清单",
+    description: "scanMemoryFiles 读取所有 .md 文件，并解析 frontmatter（最多 30 行）",
   },
   {
     id: "evaluate",
-    label: "Sonnet evaluates",
-    description: "Side-query receives manifest + user query + recently-used tools",
+    label: "Sonnet 评估",
+    description: "侧路查询接收清单、用户查询和最近使用的工具",
   },
   {
     id: "select",
-    label: "Select relevant",
-    description: "Sonnet returns up to 5 filenames via structured JSON output",
+    label: "选择相关内容",
+    description: "Sonnet 通过结构化 JSON 输出返回最多 5 个文件名",
   },
   {
     id: "inject",
-    label: "Inject with staleness",
-    description: "Selected memories attached with age warnings for stale content",
+    label: "注入并标注时效",
+    description: "将选中的记忆附加进来，并对过期内容给出时效提醒",
   },
 ];
 
@@ -425,7 +425,7 @@ export default function MemoryRecall({ className }: Props) {
             marginRight: 4,
           }}
         >
-          Query:
+          查询：
         </div>
         {queryPresets.map((preset, i) => (
           <button
@@ -468,7 +468,7 @@ export default function MemoryRecall({ className }: Props) {
             transition: "background 0.2s",
           }}
         >
-          {isAnimating ? "Reset" : "Run Recall"}
+          {isAnimating ? "重置" : "运行回忆"}
         </button>
       </div>
 

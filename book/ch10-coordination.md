@@ -1,34 +1,34 @@
-# Chapter 10: Tasks, Coordination, and Swarms
+# 第 10 章：任务、协调与 Swarm
 
-## The Limits of a Single Thread
+## 单线程的边界
 
-Chapter 8 showed how to create a sub-agent -- the fifteen-step lifecycle that builds an isolated execution context from an agent definition. Chapter 9 showed how to make parallel spawns economical through prompt cache exploitation. But creating agents and managing agents are different problems. This chapter addresses the second.
+第 8 章讲了如何创建子代理 -- 也就是那套十五步生命周期，它会从 agent definition 生成一个隔离的执行上下文。第 9 章讲了如何通过 prompt cache 利用，让并行启动变得更经济。但“创建 agent”和“管理 agent”是两个不同的问题。本章要解决的是后者。
 
-A single agent loop -- one model, one conversation, one tool at a time -- can accomplish a remarkable amount of work. It can read files, edit code, run tests, search the web, and reason about complex problems. But it hits a ceiling.
+单个 agent 循环 -- 一个模型、一次对话、一次只用一个工具 -- 已经能完成相当多的工作。它可以读文件、改代码、跑测试、搜索网页，并推理复杂问题。但它终究会碰到天花板。
 
-The ceiling is not intelligence. It is parallelism and scope. A developer working on a large refactoring needs to update 40 files, run tests after each batch, and verify nothing broke. A codebase migration touches frontend, backend, and database layers simultaneously. A thorough code review reads dozens of files while running the test suite in the background. These are not harder problems -- they are wider ones. They require the ability to do multiple things at once, to delegate work to specialists, and to coordinate the results.
+这个天花板不是智能，而是并行度和作用域。一个在做大规模重构的开发者，需要改 40 个文件，每批改完都跑测试，并确认没有出问题。一次代码库迁移会同时触及前端、后端和数据库层。一次彻底的代码审查，会在后台跑测试套件的同时阅读几十个文件。这些问题不是更难，而是更宽。它们要求系统能同时做多件事，能把工作委派给专家，还要能协调结果。
 
-Claude Code's answer to this problem is not one mechanism but a layered stack of orchestration patterns, each suited to a different shape of work. Background tasks for fire-and-forget commands. Coordinator mode for manager-worker hierarchies. Swarm teams for peer-to-peer collaboration. And a unified communication protocol that ties them all together.
+Claude Code 对这个问题的答案不是一种机制，而是一组分层的编排模式，每一种都适合不同形态的工作。后台任务适合 fire-and-forget 命令。Coordinator mode 适合 manager-worker 层级。Swarm team 适合 peer-to-peer 协作。再加上一套统一的通信协议把它们串起来。
 
-The orchestration layer spans approximately 40 files across `tools/AgentTool/`, `tasks/`, `coordinator/`, `tools/SendMessageTool/`, and `utils/swarm/`. Despite this breadth, the design is anchored by a single state machine that all patterns share. Understanding that state machine -- the `Task` abstraction in `Task.ts` -- is the prerequisite for understanding everything else.
+编排层大约横跨 `tools/AgentTool/`、`tasks/`、`coordinator/`、`tools/SendMessageTool/` 和 `utils/swarm/` 这 40 个左右的文件。尽管范围很大，但设计是由一个所有模式共享的状态机锚定的。理解这个状态机 -- 也就是 `Task.ts` 里的 `Task` 抽象 -- 是理解后面所有内容的前提。
 
-This chapter traces the full stack, from the foundational task state machine up through the most sophisticated multi-agent topologies.
+本章会沿着整条栈往下讲：从基础的 task 状态机开始，一直讲到最复杂的多代理拓扑。
 
 ---
 
-## The Task State Machine
+## Task 状态机
 
-Every background operation in Claude Code -- a shell command, a sub-agent, a remote session, a workflow script -- is tracked as a *task*. The task abstraction lives in `Task.ts` and provides the unified state model that the rest of the orchestration layer builds on.
+Claude Code 里的每一种后台操作 -- shell 命令、子代理、远程会话、工作流脚本 -- 都会被当作一个 *task* 来跟踪。task 抽象定义在 `Task.ts` 里，提供整套编排层共同依赖的统一状态模型。
 
-### Seven Types
+### 七种类型
 
-The system defines seven task types, each representing a different execution model:
+系统定义了七种 task type，每一种都代表一种不同的执行模型：
 
-The seven task types are: `local_bash` (background shell commands), `local_agent` (background sub-agents), `remote_agent` (remote sessions), `in_process_teammate` (swarm teammates), `local_workflow` (workflow script executions), `monitor_mcp` (MCP server monitors), and `dream` (speculative background thinking).
+七种 task type 分别是：`local_bash`（后台 shell 命令）、`local_agent`（后台子代理）、`remote_agent`（远程会话）、`in_process_teammate`（swarm 队友）、`local_workflow`（工作流脚本执行）、`monitor_mcp`（MCP server 监控），以及 `dream`（推测性的后台思考）。
 
-`local_bash` and `local_agent` are the workhorses -- background shell commands and background sub-agents, respectively. `in_process_teammate` is the swarm primitive. `remote_agent` bridges to remote Claude Code Runtime environments. `local_workflow` runs multi-step scripts. `monitor_mcp` watches MCP server health. `dream` is the most unusual -- a background task that lets the agent think speculatively while waiting for user input.
+`local_bash` 和 `local_agent` 是主力 -- 分别对应后台 shell 命令和后台子代理。`in_process_teammate` 是 swarm 的基本单元。`remote_agent` 则连接到远程 Claude Code Runtime 环境。`local_workflow` 负责执行多步脚本。`monitor_mcp` 用来监控 MCP server 健康状况。`dream` 最特殊 -- 它让 agent 在等待用户输入时，也能在后台进行推测性思考。
 
-Each type gets a single-character ID prefix for instant visual identification:
+每一种类型都会分配一个单字符 ID 前缀，方便瞬间识别：
 
 | Type | Prefix | Example ID |
 |------|--------|------------|
@@ -40,13 +40,13 @@ Each type gets a single-character ID prefix for instant visual identification:
 | `monitor_mcp` | `m` | `m2g7k1z8` |
 | `dream` | `d` | `d5b4n3r6` |
 
-Task IDs use a single-character prefix (a for agents, b for bash, t for teammates, etc.) followed by 8 random alphanumeric characters drawn from a case-insensitive-safe alphabet (digits plus lowercase letters). This yields approximately 2.8 trillion combinations -- enough to resist brute-force symlink attacks against the task output files on disk.
+Task ID 会采用一个单字符前缀（a 表示 agent，b 表示 bash，t 表示 teammate，等等），后面跟 8 个随机字母数字字符，字符表是大小写无关安全的字母表（数字加小写字母）。这样大约能产生 2.8 万亿种组合 -- 足以抵御针对磁盘上 task 输出文件的暴力 symlink 攻击。
 
-When you see `a7j3n9p2` in a log line, you know immediately it is a background agent. When you see `b4k2m8x1`, a shell command. The prefix is a micro-optimization for human readers, but in a system that can have dozens of concurrent tasks, it matters.
+当你在 log 里看到 `a7j3n9p2`，就能立刻知道它是一个后台 agent；看到 `b4k2m8x1`，就知道那是一个 shell 命令。前缀对人类读者来说只是一个微优化，但在一个可能同时存在几十个并发 task 的系统里，这种微优化很重要。
 
-### Five Statuses
+### 五种状态
 
-The lifecycle is a simple directed graph with no cycles:
+生命周期是一个没有环的简单有向图：
 
 ```mermaid
 stateDiagram-v2
@@ -56,7 +56,7 @@ stateDiagram-v2
     running --> killed: abort / user stop
 ```
 
-`pending` is the brief state between registration and first execution. `running` means the task is actively doing work. The three terminal states are `completed` (success), `failed` (error), and `killed` (explicitly stopped by the user, the coordinator, or an abort signal). A helper function guards against interacting with dead tasks:
+`pending` 是注册和首次执行之间的短暂状态。`running` 表示 task 正在工作。三个终态分别是 `completed`（成功）、`failed`（错误）和 `killed`（被用户、协调器或 abort signal 显式停止）。有一个辅助函数会防止和已经死亡的 task 交互：
 
 ```typescript
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
@@ -64,11 +64,11 @@ export function isTerminalTaskStatus(status: TaskStatus): boolean {
 }
 ```
 
-This function appears everywhere -- in message injection guards, eviction logic, orphan cleanup, and the SendMessage routing that decides whether to queue a message or resume a dead agent.
+这个函数无处不在 -- message 注入保护、eviction 逻辑、孤儿清理，以及决定到底是队列化消息还是恢复死掉 agent 的 SendMessage 路由里都会用到它。
 
-### The Base State
+### 基础状态
 
-Every task state extends `TaskStateBase`, which carries the fields that all seven types share:
+每一种 task state 都继承自 `TaskStateBase`，它承载了七种类型共享的字段：
 
 ```typescript
 export type TaskStateBase = {
@@ -86,11 +86,11 @@ export type TaskStateBase = {
 }
 ```
 
-Two fields deserve attention. `outputFile` is the bridge between async execution and the parent's conversation -- every task writes its output to a file on disk, and the parent can read it incrementally via `outputOffset`. `notified` prevents duplicate completion messages; once the parent has been told a task finished, the flag flips to `true` and the notification is never sent again. Without this guard, a task that completes between two consecutive polls of the notification queue would generate duplicate notifications, confusing the model into thinking two tasks finished when only one did.
+有两个字段尤其值得注意。`outputFile` 是异步执行和父对话之间的桥梁 -- 每个 task 都会把输出写到磁盘上的一个文件里，父级则可以通过 `outputOffset` 增量读取。`notified` 用来防止重复完成通知；一旦父级已经被告知 task 结束，这个标志就会变成 `true`，之后就不会再发送通知。没有这个保护的话，一个 task 如果恰好在两次通知队列轮询之间完成，就会生成重复通知，让模型误以为有两个 task 完成了，其实只有一个。
 
-### The Agent Task State
+### Agent task 状态
 
-`LocalAgentTaskState` is the most complex variant, carrying everything needed to manage a background sub-agent's full lifecycle:
+`LocalAgentTaskState` 是最复杂的变体，它携带了管理后台子代理完整生命周期所需的一切：
 
 ```typescript
 export type LocalAgentTaskState = TaskStateBase & {
@@ -113,13 +113,13 @@ export type LocalAgentTaskState = TaskStateBase & {
 }
 ```
 
-Three fields reveal important design decisions. `pendingMessages` is the inbox -- when `SendMessage` targets a running agent, the message is queued here rather than injected immediately. Messages are drained at tool-round boundaries, which preserves the agent's turn structure. `isBackgrounded` distinguishes agents that were born async from those that started as foreground sync agents and were later backgrounded by the user pressing a key. `evictAfter` is a garbage collection mechanism: non-retained completed tasks get a grace period before their state is purged from memory.
+有三个字段能看出重要的设计决策。`pendingMessages` 是 inbox -- 当 `SendMessage` 指向一个正在运行的 agent 时，消息会先排到这里，而不是立刻注入。消息会在 tool-round 边界被 drain，这样就能保住 agent 的轮次结构。`isBackgrounded` 用来区分两类 agent：一类是从一开始就异步出生的，另一类是先作为前台同步 agent 启动、后来被用户按键切到后台的。`evictAfter` 是一个垃圾回收机制：没有被保留的已完成 task 会在内存里留一个宽限期，之后状态才会被清掉。
 
-All task states are stored in `AppState.tasks` as a `Record<string, TaskState>`, keyed by the prefixed ID. This is a flat map, not a tree -- the system does not model parent-child relationships in the state store. The parent-child relationship is implicit in the conversation flow: the parent holds the `toolUseId` that spawned the child.
+所有 task state 都以带前缀的 ID 为键，存放在 `AppState.tasks` 里的 `Record<string, TaskState>` 中。这是一个扁平 map，不是树 -- 系统不会在 state store 里建模父子关系。父子关系是通过对话流隐式表达的：父级持有生成子级的 `toolUseId`。
 
-### The Task Registry
+### Task 注册表
 
-Each task type is backed by a `Task` object with a minimal interface:
+每种 task type 背后都有一个 `Task` 对象，接口很小：
 
 ```typescript
 export type Task = {
@@ -129,7 +129,7 @@ export type Task = {
 }
 ```
 
-The registry collects all task implementations:
+注册表会收集所有 task 实现：
 
 ```typescript
 export function getAllTasks(): Task[] {
@@ -144,19 +144,19 @@ export function getAllTasks(): Task[] {
 }
 ```
 
-Notice the conditional inclusion -- `LocalWorkflowTask` and `MonitorMcpTask` are feature-gated and may not exist at runtime. The `Task` interface is deliberately minimal. Earlier iterations included `spawn()` and `render()` methods, but these were removed when it became clear that spawning and rendering were never called polymorphically. Each task type has its own spawn logic, its own state management, and its own rendering. The only operation that genuinely needs to dispatch by type is `kill()`, and so that is all the interface requires.
+这里要注意条件式包含 -- `LocalWorkflowTask` 和 `MonitorMcpTask` 都受特性开关控制，运行时可能根本不存在。`Task` 接口被刻意设计得很小。早期版本里曾经有 `spawn()` 和 `render()` 方法，但后来发现，spawn 和 render 从来没有以多态方式调用过，所以把它们删掉了。每一种 task type 都有自己的 spawn 逻辑、自己的状态管理和自己的渲染。真正需要按类型分发的操作只有 `kill()`，因此接口只保留这一项。
 
-This is an example of interface evolution through subtraction. The initial design imagined that all task types would share a common lifecycle interface. In practice, the types diverged enough that the shared interface became a fiction -- `spawn()` for a shell command and `spawn()` for an in-process teammate have almost nothing in common. Rather than maintain a leaky abstraction, the team removed everything except the one method that actually benefits from polymorphism.
+这就是通过“减法”演化出来的接口。最初的设计以为所有 task type 都会共享一套通用生命周期接口。实际做下来才发现，各种类型的差异已经大到共享接口变成了虚构 -- shell 命令的 `spawn()` 和 in-process teammate 的 `spawn()` 几乎没什么共同点。与其维护一个有泄漏的抽象，不如把所有东西都删掉，只保留真正能从多态获益的那个方法。
 
 ---
 
-## Communication Patterns
+## 通信模式
 
-A task that runs in the background is only useful if the parent can observe its progress and receive its results. Claude Code supports three communication channels, each optimized for a different access pattern.
+一个后台运行的 task 只有在父级能观察它的进度并接收结果时才有价值。Claude Code 支持三种通信通道，每一种都针对不同的访问模式做了优化。
 
-### Foreground: The Generator Chain
+### 前台：生成器链
 
-When an agent runs synchronously, the parent iterates its `runAgent()` async generator directly, yielding each message back up the call stack. The interesting mechanism here is the background escape hatch -- the sync loop races between "next message from agent" and "background signal":
+当 agent 以同步方式运行时，父级会直接迭代它的 `runAgent()` async generator，把每条消息沿调用栈向上返回。这里最有意思的机制是后台逃生口 -- 同步循环会在“来自 agent 的下一条消息”和“后台信号”之间做竞速：
 
 ```typescript
 const agentIterator = runAgent({ ...params })[Symbol.asyncIterator]()
@@ -178,15 +178,15 @@ while (true) {
 }
 ```
 
-If the user decides mid-execution that a sync agent should become a background task, the foreground iterator is cleanly returned (triggering its `finally` block for resource cleanup), and the agent is re-spawned as an async task with the same ID. The transition is seamless -- no work is lost, and the agent continues from where it left off with an async abort controller that is unlinked from the parent's ESC key.
+如果用户在执行过程中决定把一个同步 agent 切成后台任务，前台 iterator 会被干净地 return（从而触发其 `finally` 块做资源清理），agent 会以同一个 ID 重新 spawn 成异步 task。这个过渡是无缝的 -- 不会丢工作，agent 也会从离开的地方继续，只不过这时它用的是一个不再和父级 ESC 键绑定的异步 abort controller。
 
-This is a genuinely difficult state transition to get right. The foreground agent shares the parent's abort controller (ESC kills both). The background agent needs its own controller (ESC should not kill it). The agent's messages need to transfer from the foreground generator stream to the background notification system. The task state needs to flip `isBackgrounded` so the UI knows to show it in the background panel. And all of this must happen atomically -- no messages lost in the transition, no zombie iterators left running. The `Promise.race` between the next message and the background signal is the mechanism that makes this possible.
+这是一种非常难处理对的状态转移。前台 agent 共享父级的 abort controller（ESC 会把两个都杀掉）；后台 agent 则需要自己的 controller（ESC 不应该杀它）。agent 的消息还要从前台 generator stream 迁移到后台 notification 系统。task state 也必须切换 `isBackgrounded`，这样 UI 才知道要把它显示在后台面板里。所有这些都必须原子化完成 -- 不能在过渡期间丢消息，也不能留下 zombie iterator。`Promise.race` 把“下一条消息”和“后台信号”并行竞速起来，正是实现这一点的机制。
 
-### Background: Three Channels
+### 后台：三条通道
 
-Background agents communicate through disk, notifications, and queued messages.
+后台 agent 通过磁盘、通知和队列消息进行通信。
 
-**Disk output files.** Every task writes to an `outputFile` path -- a symlink to the agent's transcript in JSONL format. The parent (or any observer) can read this file incrementally using `outputOffset`, which tracks how far into the file has been consumed. The `TaskOutputTool` exposes this to the model:
+**磁盘输出文件。** 每个 task 都会写一个 `outputFile` 路径 -- 这是一个指向 agent JSONL transcript 的 symlink。父级（或任何观察者）可以通过 `outputOffset` 增量读取这个文件，它记录了已经消费到文件的哪个位置。`TaskOutputTool` 把这一能力暴露给模型：
 
 ```typescript
 inputSchema = z.strictObject({
@@ -196,9 +196,9 @@ inputSchema = z.strictObject({
 })
 ```
 
-When `block: true`, the tool polls until the task reaches a terminal state or the timeout expires. This is the primary mechanism for a coordinator that spawns a worker and waits for its result.
+当 `block: true` 时，工具会轮询，直到 task 到达终态或者超时。这是 coordinator spawn 一个 worker 并等待结果时的主要机制。
 
-**Task notifications.** When a background agent completes, the system generates an XML notification and enqueues it for delivery into the parent's conversation:
+**Task notifications。** 当后台 agent 完成时，系统会生成一条 XML 通知，并把它排队送进父级的对话里：
 
 ```xml
 <task-notification>
@@ -216,9 +216,9 @@ When `block: true`, the tool polls until the task reaches a terminal state or th
 </task-notification>
 ```
 
-The notification is injected as a user-role message in the parent's conversation, which means the model sees it in its normal message flow. It does not need a special tool to check for completions -- they arrive as context. The `notified` flag on the task state prevents duplicate delivery.
+这条通知会以 user-role message 的形式注入父级对话，也就是说模型会在正常消息流里看到它。模型不需要专门的工具去检查完成状态 -- 完成信息会作为上下文自然到达。task state 上的 `notified` 标志会防止重复投递。
 
-**Command queue.** The `pendingMessages` array on `LocalAgentTaskState` is the third channel. When `SendMessage` targets a running agent, the message is queued:
+**命令队列。** `LocalAgentTaskState` 上的 `pendingMessages` 数组就是第三条通道。当 `SendMessage` 指向一个正在运行的 agent 时，消息会被排队：
 
 ```typescript
 if (isLocalAgentTask(task) && task.status === 'running') {
@@ -227,11 +227,11 @@ if (isLocalAgentTask(task) && task.status === 'running') {
 }
 ```
 
-These messages are drained at tool-round boundaries by `drainPendingMessages()` and injected as user messages into the agent's conversation. This is a crucial design choice -- messages arrive between tool rounds, not mid-execution. The agent finishes its current thought, then receives the new information. No race conditions, no corrupted state.
+这些消息会在 tool-round 边界由 `drainPendingMessages()` 取出，并作为 user message 注入 agent 的对话。这是一个关键设计 -- 消息是在工具轮次之间到达的，不是在执行中途插入。agent 会先完成当前思考，再接收新信息。没有竞态，也没有状态污染。
 
-### Progress Tracking
+### 进度跟踪
 
-The `ProgressTracker` provides real-time visibility into agent activity:
+`ProgressTracker` 会为 agent 活动提供实时可见性：
 
 ```typescript
 export type ProgressTracker = {
@@ -242,29 +242,29 @@ export type ProgressTracker = {
 }
 ```
 
-The distinction between input and output token tracking is deliberate and reflects a subtlety of the API's billing model. Input tokens are cumulative per API call because the full conversation is re-sent each time -- the 15th turn includes all 14 previous turns, so the input token count reported by the API already reflects the total. Keeping the latest value is the correct aggregation. Output tokens are per-turn -- the model generates new tokens each time -- so summing is the correct aggregation. Getting this wrong would either dramatically overcount (summing cumulative input tokens) or dramatically undercount (keeping only the latest output tokens).
+这些字段区分 input token 和 output token，是有意设计的，也反映了 API 计费模型里的一个细节。input token 在每次 API 调用中是累积的，因为完整对话每次都会重新发送 -- 第 15 轮会带上前 14 轮的全部内容，所以 API 报告的 input token 本身就已经是总量。保留最新值才是正确的聚合方式。output token 则是按轮次生成的 -- 模型每次都会产出新 token -- 所以应该累加。算错的话，要么会严重高估（把累积的 input token 再次求和），要么会严重低估（只保留最新的 output token）。
 
-The `recentActivities` array (capped at 5 entries) provides a human-readable stream of what the agent is doing: "Read src/auth/validate.ts", "Bash: npm test", "Edit src/auth/validate.ts". This appears in the VS Code subagent panel and the terminal's background task indicator, giving users visibility into agent work without requiring them to read full transcripts.
+`recentActivities` 数组（最多 5 条）提供了一条人类可读的活动流，比如：“Read src/auth/validate.ts”、“Bash: npm test”、“Edit src/auth/validate.ts”。它会出现在 VS Code 的 subagent 面板和终端的后台任务指示器里，让用户无需读完整 transcript 也能看见 agent 在干什么。
 
-For background agents, progress is written to `AppState` via `updateAsyncAgentProgress()` and emitted as SDK events via `emitTaskProgress()`. The VS Code subagent panel consumes these events to render live progress bars, tool counts, and activity streams. The progress tracking is not just cosmetic -- it is the primary feedback mechanism that tells users whether a background agent is making progress or stuck in a loop.
+对后台 agent 来说，进度会通过 `updateAsyncAgentProgress()` 写入 `AppState`，并通过 `emitTaskProgress()` 作为 SDK event 发出。VS Code 的 subagent 面板会消费这些事件，渲染实时进度条、工具计数和活动流。进度跟踪不仅仅是装饰 -- 它是告诉用户后台 agent 是在推进，还是卡在循环里的主要反馈机制。
 
 ---
 
 ## Coordinator Mode
 
-Coordinator mode transforms Claude Code from a single agent with background helpers into a true manager-worker architecture. It is the most opinionated orchestration pattern in the system, and its design reveals deep thinking about how LLMs should and should not delegate work.
+Coordinator mode 把 Claude Code 从“一个带后台助手的单代理”变成了真正的 manager-worker 架构。它是系统里最有主张的编排模式，而它的设计暴露了对 LLM 应该如何、以及不应该如何委派工作的深层思考。
 
-### The Problem Coordinator Mode Solves
+### Coordinator Mode 要解决的问题
 
-The standard agent loop has a single conversation and a single context window. When it spawns a background agent, the background agent runs independently and reports results via task notifications. This works well for simple delegation -- "run the tests while I keep editing" -- but breaks down for complex multi-step workflows.
+标准 agent 循环只有一个对话和一个上下文窗口。当它 spawn 一个后台 agent 时，后台 agent 会独立运行，并通过 task notifications 回报结果。这种方式对简单委派很有效 -- “我继续编辑，你去跑测试” -- 但遇到复杂的多步骤工作流就不够用了。
 
-Consider a codebase migration. The agent needs to: (1) understand the current patterns across 200 files, (2) design the migration strategy, (3) apply changes to each file, and (4) verify nothing broke. Steps 1 and 3 benefit from parallelism. Step 2 requires synthesizing the results of step 1. Step 4 depends on step 3. A single agent doing this sequentially would spend most of its token budget re-reading files. Multiple background agents doing this without coordination would produce inconsistent changes.
+想象一次代码库迁移。agent 需要：(1) 理解 200 个文件里的现有模式，(2) 设计迁移策略，(3) 对每个文件应用改动，(4) 验证没有出问题。步骤 1 和 3 都能从并行中获益。步骤 2 需要综合步骤 1 的结果。步骤 4 依赖步骤 3。如果一个 agent 顺序做这些事情，大部分 token 预算都会耗在重新读文件上。如果多个后台 agent 没有协调地去做，就会产出不一致的修改。
 
-Coordinator mode solves this by splitting the "thinking" agent from the "doing" agents. The coordinator handles steps 1 and 2 (dispatching research workers, then synthesizing). Workers handle steps 3 and 4 (applying changes, running tests). The coordinator sees the full picture; workers see their specific task.
+Coordinator mode 的做法是把“思考” agent 和“执行” agent 分开。coordinator 负责步骤 1 和 2（派发研究 worker，然后综合结果）。worker 负责步骤 3 和 4（应用修改、运行测试）。coordinator 看见全局，worker 只看见自己的那一小块任务。
 
-### Activation
+### 激活方式
 
-A single environment variable flips the switch:
+只需要一个环境变量就能切换：
 
 ```typescript
 export function isCoordinatorMode(): boolean {
@@ -277,17 +277,17 @@ export function isCoordinatorMode(): boolean {
 
 On session resume, `matchSessionMode()` checks whether the resumed session's stored mode matches the current environment. If they diverge, the environment variable is flipped to match. This prevents the confusing scenario where a coordinator session resumes as a regular agent (losing awareness of its workers) or a regular session resumes as a coordinator (losing access to its tools). The session's mode is the source of truth; the environment variable is the runtime signal.
 
-### Tool Restrictions
+### 工具限制
 
-The coordinator's power comes not from having more tools, but from having fewer. In coordinator mode, the coordinator agent gets exactly three tools:
+coordinator 的力量不是来自更多工具，而是来自更少工具。在 coordinator mode 下，coordinator agent 只拿到三个工具：
 
 - **Agent** -- spawn workers
 - **SendMessage** -- communicate with existing workers
 - **TaskStop** -- terminate running workers
 
-That is it. No file reading. No code editing. No shell commands. The coordinator cannot directly touch the codebase. This restriction is not a limitation -- it is the core design principle. The coordinator's job is to think, plan, decompose, and synthesize. Workers do the work.
+就是这样。不能读文件，不能改代码，不能跑 shell 命令。coordinator 不能直接触碰代码库。这个限制不是缺点 -- 它就是核心设计原则。coordinator 的工作是思考、规划、拆解和综合；真正干活的是 worker。
 
-Workers, conversely, get the full tool set minus internal coordination tools:
+相反，worker 会拿到完整工具集，只是去掉内部协调工具：
 
 ```typescript
 const INTERNAL_WORKER_TOOLS = new Set([
@@ -298,17 +298,17 @@ const INTERNAL_WORKER_TOOLS = new Set([
 ])
 ```
 
-Workers cannot spawn their own sub-teams or send messages to peers. They report results through the normal task completion mechanism, and the coordinator synthesizes across them.
+worker 不能自己 spawn 子团队，也不能给 peer 发消息。它们通过正常的 task completion 机制回报结果，然后由 coordinator 做综合。
 
-### The 370-Line System Prompt
+### 370 行系统 prompt
 
-The coordinator system prompt is, line for line, the most instructive document in the codebase about how to use LLMs for orchestration. It runs approximately 370 lines and encodes hard-won lessons about delegation patterns. The key teachings:
+coordinator 的 system prompt 是代码库里关于如何把 LLM 用于编排的最有启发性的文档，逐行都是。它大约有 370 行，浓缩了关于委派模式的很多经验教训。核心教导有这些：
 
-**"Never delegate understanding."** This is the central thesis. The coordinator must synthesize research findings into specific prompts with file paths, line numbers, and exact changes. The prompt explicitly calls out anti-patterns like "based on your findings, fix the bug" -- a prompt that delegates *comprehension* to the worker, forcing it to re-derive context the coordinator already has. The correct pattern is: "In `src/auth/validate.ts` at line 42, the `userId` parameter can be null when called from the OAuth flow. Add a null check that returns a 401 response."
+**“永远不要委派理解。”** 这是中心论点。coordinator 必须把研究结果综合成具体 prompt，其中要包含文件路径、行号和精确改动。prompt 里明确点出了“基于你的发现，去修 bug”这种反模式 -- 这会把*理解*委派给 worker，逼它重新推导 coordinator 已经知道的上下文。正确模式是：“在 `src/auth/validate.ts` 第 42 行，`userId` 参数在 OAuth flow 中可能为 null。加一个 null check，null 时返回 401 响应。”
 
-**"Parallelism is your superpower."** The prompt establishes a clear concurrency model. Read-only tasks run freely in parallel -- research, exploration, file reading. Write-heavy tasks serialize per file set. The coordinator is expected to reason about which tasks can overlap and which must sequence. A good coordinator spawns five research workers simultaneously, waits for all of them, synthesizes, then spawns three implementation workers that touch disjoint file sets. A bad coordinator spawns one worker, waits, spawns the next, waits again -- serializing work that could have been parallel.
+**“并行是你的超能力。”** prompt 建立了一套清晰的并发模型。只读任务可以自由并行 -- 研究、探索、读文件。写重活则要按文件集串行。coordinator 需要判断哪些任务可以重叠，哪些必须顺序执行。一个好的 coordinator 会同时 spawn 五个研究 worker，等它们全部完成后做综合，然后再 spawn 三个实现 worker，让它们处理互不重叠的文件集。一个差的 coordinator 会 spawn 一个 worker，等它结束，再 spawn 下一个，再等 -- 把本可以并行的工作串行化。
 
-**Task workflow phases.** The prompt defines four phases:
+**任务工作流阶段。** prompt 定义了四个阶段：
 
 ```mermaid
 graph LR
@@ -322,35 +322,35 @@ graph LR
     V -.- V1[Workers run tests\nverify changes]
 ```
 
-1. **Research** -- workers explore the codebase in parallel, reading files, running tests, gathering information
-2. **Synthesis** -- the coordinator (not a worker) reads all research results and builds a unified understanding
-3. **Implementation** -- workers receive precise instructions derived from the synthesis
-4. **Verification** -- workers run tests and verify the changes
+1. **Research** -- workers 并行探索代码库，读文件、跑测试、收集信息
+2. **Synthesis** -- coordinator（不是 worker）读取所有研究结果，形成统一理解
+3. **Implementation** -- worker 接收由 synthesis 推导出的精确指令
+4. **Verification** -- worker 运行测试并验证修改
 
-The coordinator should not skip phases. The most common failure mode is jumping from research directly to implementation without synthesis. When this happens, the coordinator delegates understanding to the implementation workers -- each one must re-derive context from scratch, leading to inconsistent changes and wasted tokens.
+coordinator 不应该跳过这些阶段。最常见的失败模式是从 research 直接跳到 implementation，而没有 synthesis。这样一来，coordinator 就把理解本身委派给了实现 worker -- 每个 worker 都得从头重新推导上下文，结果就是改动不一致、token 浪费。
 
-**The continue-vs-spawn decision.** When a worker finishes and the coordinator has follow-up work, should it send a message to the existing worker (via SendMessage) or spawn a fresh one (via Agent)? The decision is a function of context overlap:
+**继续还是新 spawn。** 当 worker 做完事，而 coordinator 还有后续工作时，它应该给现有 worker 发消息（通过 SendMessage），还是重新 spawn 一个新的（通过 Agent）？这个决定取决于上下文重叠程度：
 
-- **High overlap, same files**: Continue. The worker already has the file contents in its context, understands the patterns, and can build on its previous work. Spawning fresh would force re-reading the same files and re-deriving the same understanding.
-- **Low overlap, different domain**: Spawn fresh. A worker that just investigated the authentication system carries 20,000 tokens of auth-specific context that is dead weight for a CSS refactoring task. Starting clean is cheaper.
-- **High overlap but the worker failed**: Spawn fresh with explicit guidance about what went wrong. Continuing a failed worker often means fighting against confused context. A fresh start with "the previous attempt failed because X, avoid Y" is more reliable.
-- **Follow-up requires the worker's output**: Continue, with the output included in the SendMessage. The worker does not need to re-derive its own results.
+- **高度重叠，同一批文件**：继续。worker 已经把文件内容放进上下文，理解了模式，也能在之前工作的基础上继续
+- **重叠低，不同领域**：重新 spawn。刚调查完认证系统的 worker，身上带着 20,000 token 的 auth 上下文，这对 CSS 重构就是负担。清空重来更便宜
+- **高度重叠，但 worker 失败了**：带着明确的失败说明重新 spawn。继续一个失败的 worker，往往是在和混乱的上下文搏斗。重新开始并明确说“上次失败是因为 X，避免 Y”，通常更可靠
+- **后续工作需要 worker 的输出**：继续，并把输出一起放进 SendMessage。worker 不需要重新推导它自己的结果
 
-**Worker prompt writing and anti-patterns.** The prompt teaches the coordinator how to write effective worker prompts and explicitly flags bad patterns:
+**worker prompt 写法与反模式。** prompt 教 coordinator 如何写出有效的 worker prompt，并明确标出坏模式：
 
-Anti-pattern: *"Based on your research findings, implement the fix."* This delegates comprehension. The worker was not the one who did the research -- the coordinator read the research results.
+反模式：*“根据你的研究结果，去实现修复。”* 这把理解委派出去了。做研究的不是 worker -- 是 coordinator 读了研究结果。
 
-Anti-pattern: *"Fix the bug in the auth module."* No file paths, no line numbers, no description of the bug. The worker must search the entire codebase from scratch.
+反模式：*“修复 auth 模块里的 bug。”* 没有文件路径、没有行号、没有 bug 描述。worker 只能从头搜索整个代码库。
 
-Anti-pattern: *"Make the same change to all the other files."* Which files? What change? The coordinator knows; it should enumerate them.
+反模式：*“把同样的改动应用到其他所有文件。”* 哪些文件？什么改动？coordinator 知道，应该把它们列出来。
 
-Good pattern: *"In `src/auth/validate.ts` at line 42, the `userId` parameter can be null when called from `src/oauth/callback.ts:89`. Add a null check: if `userId` is null, return `{ error: 'unauthorized', status: 401 }`. Then update the test in `src/auth/__tests__/validate.test.ts` to cover the null case."*
+好模式：*“在 `src/auth/validate.ts` 第 42 行，`userId` 参数在 `src/oauth/callback.ts:89` 中被调用时可能为 null。加一个 null check：如果 `userId` 是 null，就返回 `{ error: 'unauthorized', status: 401 }`。然后更新 `src/auth/__tests__/validate.test.ts` 里的测试，覆盖 null 情况。”*
 
-The cost of writing a specific prompt is borne once, by the coordinator. The benefit -- a worker that executes correctly on the first try -- is enormous. Vague prompts create a false economy: the coordinator saves 30 seconds of prompt writing and the worker wastes 5 minutes of exploration.
+写一个具体 prompt 的成本，只由 coordinator 支付一次；而收益 -- worker 第一次就正确执行 -- 是巨大的。模糊 prompt 其实是在制造一种假节省：coordinator 省下了 30 秒写 prompt，worker 却浪费了 5 分钟做探索。
 
-### Worker Context
+### Worker 上下文
 
-The coordinator injects information about available tools into its own context, so the model knows what workers can do:
+coordinator 会把可用工具的信息注入自己的上下文，这样模型就知道 worker 能做什么：
 
 ```typescript
 export function getCoordinatorUserContext(mcpClients, scratchpadDir?) {
@@ -363,13 +363,13 @@ export function getCoordinatorUserContext(mcpClients, scratchpadDir?) {
 }
 ```
 
-The scratchpad directory (gated by the `tengu_scratch` feature flag) is a shared filesystem location where workers can read and write without permission prompts. It enables durable cross-worker knowledge sharing -- one worker's research notes become another worker's input, mediated through the filesystem rather than through the coordinator's token window.
+`tengu_scratch` 特性开关控制的 scratchpad 目录，是一个共享文件系统位置，worker 可以在这里读写而无需权限提示。它能支持持久的跨 worker 知识共享 -- 一个 worker 的研究笔记可以变成另一个 worker 的输入，而且是通过文件系统传递，而不是通过 coordinator 的 token 窗口。
 
-This is significant because it solves a fundamental limitation of the coordinator pattern. Without a scratchpad, all information flows through the coordinator: Worker A produces findings, the coordinator reads them via TaskOutput, synthesizes them into Worker B's prompt. The coordinator's context window becomes the bottleneck -- it must hold all intermediate results long enough to synthesize them. With a scratchpad, Worker A writes findings to `/tmp/scratchpad/auth-analysis.md`, and the coordinator tells Worker B: "Read the auth analysis at `/tmp/scratchpad/auth-analysis.md` and apply the pattern to the OAuth module." The coordinator moves information by reference, not by value.
+这很重要，因为它解决了 coordinator 模式的一个根本限制。没有 scratchpad 时，所有信息都必须经过 coordinator：Worker A 产出结果，coordinator 通过 TaskOutput 读到，再把它综合进 Worker B 的 prompt。coordinator 的上下文窗口会变成瓶颈 -- 它必须把所有中间结果都装进脑子里，直到综合完成。有了 scratchpad，Worker A 可以把结果写进 `/tmp/scratchpad/auth-analysis.md`，coordinator 再告诉 Worker B：“去读 `/tmp/scratchpad/auth-analysis.md` 里的 auth 分析，并把这个模式应用到 OAuth module。” coordinator 传递的是引用，不是值。
 
-### Mutual Exclusion with Fork
+### 与 Fork 互斥
 
-Coordinator mode and fork-based subagents are mutually exclusive:
+Coordinator mode 和基于 fork 的 subagent 是互斥的：
 
 ```typescript
 export function isForkSubagentEnabled(): boolean {
@@ -380,17 +380,17 @@ export function isForkSubagentEnabled(): boolean {
 }
 ```
 
-The conflict is fundamental. Fork agents inherit the parent's entire conversation context -- they are cheap clones that share prompt cache. Coordinator workers are independent agents with fresh context and specific instructions. These are opposing philosophies of delegation, and the system enforces the choice at the feature flag level.
+这个冲突是本质性的。Fork agent 会继承父级整个对话上下文 -- 它们是共享 prompt cache 的廉价克隆。Coordinator worker 则是拥有新上下文和明确指令的独立 agent。这两种委派哲学是对立的，系统会在特性开关层面强制你二选一。
 
 ---
 
-## The Swarm System
+## Swarm 系统
 
-Coordinator mode is hierarchical: one manager, many workers, top-down control. The swarm system is the peer-to-peer alternative -- multiple Claude Code instances working as a team, with a leader coordinating multiple teammates through message passing.
+Coordinator mode 是层级式的：一个管理者、很多 worker、自上而下控制。Swarm 系统则是 peer-to-peer 的替代方案 -- 多个 Claude Code 实例组成团队，由 leader 通过消息传递协调多个队友。
 
-### Team Context
+### 团队上下文
 
-Teams are identified by a `teamName` and tracked in `AppState.teamContext`:
+团队通过 `teamName` 标识，并记录在 `AppState.teamContext` 中：
 
 ```typescript
 teamContext?: {
@@ -401,11 +401,11 @@ teamContext?: {
 }
 ```
 
-Each teammate gets a name (for addressing) and a color (for visual distinction in the UI). The team file is persisted on disk so that team membership survives process restarts.
+每个队友都会有一个名字（用于寻址）和一种颜色（用于在 UI 里做视觉区分）。团队文件会持久化到磁盘，因此即使进程重启，团队成员关系也能保留下来。
 
-### Agent Name Registry
+### Agent 名称注册表
 
-Background agents can be given names at spawn time, which makes them addressable by human-readable identifiers instead of random task IDs:
+后台 agent 在 spawn 时可以被赋予名字，这样就能用人类可读的标识来寻址，而不是随机 task ID：
 
 ```typescript
 if (name) {
@@ -417,18 +417,18 @@ if (name) {
 }
 ```
 
-The `agentNameRegistry` is a `Map<string, AgentId>`. When `SendMessage` resolves a `to` field, the registry is checked first:
+`agentNameRegistry` 是一个 `Map<string, AgentId>`。当 `SendMessage` 解析 `to` 字段时，会先查这个注册表：
 
 ```typescript
 const registered = appState.agentNameRegistry.get(input.to)
 const agentId = registered ?? toAgentId(input.to)
 ```
 
-This means you can send a message to `"researcher"` instead of `a7j3n9p2`. The indirection is simple but it enables the coordinator to think in terms of roles rather than IDs -- a significant improvement for the model's ability to reason about multi-agent workflows.
+这意味着你可以给 `"researcher"` 发消息，而不是 `a7j3n9p2`。这个间接层很简单，但它让 coordinator 可以按角色而不是按 ID 来思考 -- 这对模型推理多代理工作流是很大的提升。
 
-### In-Process Teammates
+### 进程内队友
 
-In-process teammates run in the same Node.js process as the leader, isolated via `AsyncLocalStorage`. Their state extends the base with team-specific fields:
+进程内队友和 leader 跑在同一个 Node.js 进程里，通过 `AsyncLocalStorage` 隔离。它们的 state 在基础字段上增加了团队专属字段：
 
 ```typescript
 export type InProcessTeammateTaskState = TaskStateBase & {
@@ -446,17 +446,17 @@ export type InProcessTeammateTaskState = TaskStateBase & {
 }
 ```
 
-The `messages` cap at 50 entries deserves explanation. During development, analysis revealed that each in-process agent accumulates approximately 20MB of RSS at 500+ turns. Whale sessions -- power users running extended workflows -- were observed launching 292 agents in 2 minutes, driving RSS to 36.8GB. The 50-message cap for the UI representation is a memory safety valve. The agent's actual conversation continues with full history; only the UI-facing snapshot is truncated.
+`messages` 上限为 50 条，这一点值得解释。开发分析发现，每个进程内 agent 在 500 多轮后会积累大约 20MB RSS。曾经观察到 whale session -- 也就是跑超长工作流的重度用户 -- 在 2 分钟内启动了 292 个 agent，把 RSS 推到 36.8GB。UI 里 50 条消息的上限就是一个内存安全阀。agent 的真实对话仍然保留完整历史；被截断的只是面向 UI 的快照。
 
-The `isIdle` flag enables a work-stealing pattern. An idle teammate is not consuming tokens or API calls -- it is simply waiting for the next message. The `onIdleCallbacks` array lets the system hook into the transition from active to idle, enabling orchestration patterns like "wait for all teammates to finish, then proceed."
+`isIdle` 标志支持 work-stealing 模式。空闲队友不会消耗 token 或 API 调用 -- 它只是等待下一条消息。`onIdleCallbacks` 数组让系统能挂钩从 active 到 idle 的过渡，从而支持“等所有队友都完成，再继续”这类编排模式。
 
-The `currentWorkAbortController` is distinct from the teammate's main abort controller. Aborting the current work controller cancels the teammate's ongoing turn but does not kill the teammate. This enables a "redirect" pattern: the leader sends a higher-priority message, the teammate's current work is aborted, and the teammate picks up the new message. The main abort controller, when aborted, kills the teammate entirely. Two levels of interruption for two levels of intent.
+`currentWorkAbortController` 和队友的主 abort controller 是分开的。abort 当前工作 controller 只会取消队友当前这一轮，不会杀掉队友本身。这就支持一种“redirect”模式：leader 发来更高优先级的消息，队友当前工作被中断，然后它接着处理新消息。主 abort controller 一旦被 abort，就会直接杀掉队友本身。两层中断，对应两层意图。
 
-The `shutdownRequested` flag implements cooperative termination. When the leader sends a shutdown request, this flag is set. The teammate can check it at natural stopping points and wind down gracefully -- finishing its current file write, committing its changes, or sending a final status update. This is gentler than a hard kill, which might leave files in an inconsistent state.
+`shutdownRequested` 标志实现的是协作式终止。leader 发出 shutdown request 时，这个标志会被置位。队友可以在自然停点检查它，并优雅收尾 -- 做完当前文件写入、提交改动，或者发出最后的状态更新。这比硬杀更温和，硬杀可能把文件留在不一致状态。
 
-### The Mailbox
+### 邮箱
 
-Teammates communicate via a file-based mailbox system. When `SendMessage` targets a teammate, the message is written to the recipient's mailbox file on disk:
+队友通过基于文件的 mailbox 系统通信。当 `SendMessage` 指向某个队友时，消息会被写入磁盘上接收者的 mailbox 文件：
 
 ```typescript
 await writeToMailbox(recipientName, {
@@ -468,11 +468,11 @@ await writeToMailbox(recipientName, {
 }, teamName)
 ```
 
-Messages can be plain text, structured protocol messages (shutdown requests, plan approvals), or broadcasts (`to: "*"` sends to all team members excluding the sender). A poller hook processes incoming messages and routes them into the teammate's conversation.
+消息可以是纯文本、结构化协议消息（shutdown requests、plan approvals），也可以是广播（`to: "*"` 会发给所有队友，发送者自己除外）。一个 poller hook 会处理传入消息，并把它们路由进队友的对话。
 
-The file-based approach is deliberately simple. There is no message broker, no event bus, no shared memory channel. Files are durable (surviving process crashes), inspectable (you can `cat` a mailbox), and cheap (no infrastructure dependencies). For a system where message volumes are measured in tens per session, not thousands per second, this is the right trade-off. A Redis-backed message queue would add operational complexity, a dependency, and failure modes -- all for a throughput requirement that a filesystem call handles trivially.
+这种基于文件的做法是刻意保持简单的。没有 message broker，没有 event bus，没有共享内存通道。文件是持久的（进程崩溃也不会丢）、可检查的（你可以直接 `cat` 一个 mailbox）、而且很便宜（不需要基础设施依赖）。对于每次会话消息量只有几十条、而不是每秒几千条的系统来说，这就是正确的权衡。一个 Redis-backed message queue 会增加运维复杂度、增加依赖、也增加故障模式 -- 这些只是为了满足一个文件系统调用就能轻松处理的吞吐需求。
 
-The broadcast mechanism deserves a note. When a message is sent to `"*"`, the sender iterates all team members from the team file, skips itself (case-insensitive comparison), and writes to each member's mailbox individually:
+广播机制也值得一提。当消息发给 `"*"` 时，发送者会遍历 team file 里的所有成员，跳过自己（大小写不敏感比较），然后分别给每个成员写一份 mailbox：
 
 ```typescript
 for (const member of teamFile.members) {
@@ -484,11 +484,11 @@ for (const recipientName of recipients) {
 }
 ```
 
-There is no fan-out optimization -- each recipient gets a separate file write. Again, at the scale of agent teams (typically 3-8 members), this is perfectly adequate. If a team had 100 members, this would need rethinking. But the 50-message memory cap that prevents 36GB RSS scenarios also implicitly caps the effective team size.
+这里没有 fan-out 优化 -- 每个接收者都会得到一次单独的文件写入。再次强调，在 agent 团队的规模下（通常 3-8 人），这已经完全够用。如果一个团队有 100 人，那就需要重新考虑了。但那个防止 36GB RSS 的 50 消息内存上限，也会间接限制有效团队规模。
 
-### Permission Forwarding
+### 权限转发
 
-Swarm workers operate with restricted permissions but can escalate to the leader when they need approval for sensitive operations:
+Swarm worker 以受限权限运行，但在需要对敏感操作进行批准时，可以升级给 leader：
 
 ```typescript
 const request = createPermissionRequest({
@@ -498,15 +498,15 @@ registerPermissionCallback({ requestId, toolUseId, onAllow, onReject })
 void sendPermissionRequestViaMailbox(request)
 ```
 
-The flow is: worker hits a tool that requires permission, the bash classifier attempts auto-approval, and if that fails, the request is forwarded to the leader via the mailbox system. The leader sees the request in their UI and can approve or reject. The callback fires and the worker proceeds. This lets workers operate autonomously for safe operations while maintaining human oversight for dangerous ones.
+流程是：worker 遇到一个需要权限的工具，bash classifier 先尝试自动批准；如果失败，就通过 mailbox 系统把请求转发给 leader。leader 会在自己的 UI 里看到请求，并可以批准或拒绝。callback 触发后，worker 继续执行。这样 worker 就能在安全操作上自主运行，同时在危险操作上保留人工监督。
 
 ---
 
-## Inter-Agent Communication: SendMessage
+## 代理间通信：SendMessage
 
 `SendMessageTool` is the universal communication primitive. It handles four distinct routing modes through a single tool interface, selected by the shape of the `to` field.
 
-### Input Schema
+### 输入模式
 
 ```typescript
 inputSchema = z.object({
@@ -526,7 +526,7 @@ inputSchema = z.object({
 
 The `message` field is a union of plain text and structured protocol messages. This means SendMessage serves double duty -- it is both the informal chat channel ("here are my findings") and the formal protocol layer ("I approve your plan" / "please shut down").
 
-### Routing Dispatch
+### 路由分发
 
 The `call()` method follows a priority-ordered dispatch chain:
 
@@ -564,7 +564,7 @@ graph TD
 
 **4. Team mailbox** (fallback when team context is active). Named recipients get messages written to their mailbox files. The `"*"` wildcard triggers a broadcast to all team members.
 
-### Structured Protocols
+### 结构化协议
 
 Beyond plain text, SendMessage carries two formal protocols.
 
@@ -572,7 +572,7 @@ Beyond plain text, SendMessage carries two formal protocols.
 
 **The plan approval protocol.** Teammates operating in plan mode must get approval before executing. They submit a plan, and the leader responds with `{ type: 'plan_approval_response', request_id, approve, feedback }`. Only the team lead can issue approvals. This creates a review gate -- the leader can examine a worker's intended approach before any files are touched, catching misunderstandings early.
 
-### The Auto-Resume Pattern
+### 自动恢复模式
 
 The most elegant feature of the routing system is transparent agent resumption. When `SendMessage` targets a completed or killed agent, instead of returning an error, it resurrects the agent:
 
@@ -610,7 +610,7 @@ There is a cost, of course. Resuming from a disk transcript means re-reading pot
 
 ---
 
-## TaskStop: The Kill Switch
+## TaskStop：终止开关
 
 `TaskStopTool` is the complement to Agent and SendMessage -- it terminates running tasks:
 
@@ -636,7 +636,7 @@ The eviction timer is worth noting. When an agent is killed, its state is not im
 
 ---
 
-## Choosing Between Patterns
+## 如何选择这些模式
 
 (A note on naming: the codebase also contains `TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate` tools that manage a structured todo list -- a completely separate system from the background task state machine described here. `TaskStop` operates on `AppState.tasks`; `TaskUpdate` operates on a project tracking data store. The naming overlap is historical and a recurring source of model confusion.)
 
@@ -666,7 +666,7 @@ One final observation: the simplest pattern is almost always the right starting 
 
 ---
 
-## The Cost of Orchestration
+## 编排的成本
 
 Before examining what the orchestration layer reveals philosophically, it is worth acknowledging what it costs practically.
 
@@ -680,7 +680,7 @@ None of this means orchestration is wrong. It means orchestration is a tool with
 
 ---
 
-## What the Orchestration Layer Reveals
+## 编排层揭示了什么
 
 The most interesting aspect of this system is not any individual mechanism -- task states, mailboxes, and notification XML are all straightforward engineering. What is interesting is the *design philosophy* that emerges from how they fit together.
 

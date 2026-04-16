@@ -169,7 +169,7 @@ const componentTree: ComponentNode = {
 };
 
 const dataFlowSteps = [
-  { from: "input-area", label: "User types and presses Enter" },
+  { from: "input-area", label: "用户输入内容并按下 Enter" },
   { from: "repl", label: "REPL calls query() with message" },
   { from: "assistant-message", label: "Tokens stream into StreamingMarkdown" },
   { from: "tool-result", label: "Tool use blocks appear for tool calls" },
@@ -559,7 +559,7 @@ export default function REPLComponentTree({ className }: Props) {
               transition: "all 0.2s",
             }}
           >
-            {showDataFlow ? "Stop Flow" : "Show Data Flow"}
+            {showDataFlow ? "停止演示" : "显示数据流"}
           </button>
           <button
             onClick={() =>

@@ -1,44 +1,44 @@
-# Chapter 15: MCP -- The Universal Tool Protocol
+# 第 15 章：MCP -- 通用工具协议
 
-## Why MCP Matters Beyond Claude Code
+## 为什么 MCP 超越 Claude Code 也重要
 
-Every other chapter in this book is about Claude Code's internals. This one is different. The Model Context Protocol is an open specification that any agent can implement, and Claude Code's MCP subsystem is one of the most complete production clients in existence. If you are building an agent that needs to call external tools -- any agent, in any language, on any model -- the patterns in this chapter transfer directly.
+本书前面的每一章都在讲 Claude Code 的内部实现，这一章不同。Model Context Protocol 是一个开放规范，任何代理都可以实现，而 Claude Code 的 MCP 子系统则是现存最完整的生产级客户端之一。如果你正在构建一个需要调用外部工具的代理，任何代理、任何语言、任何模型，这一章里的模式都可以直接迁移。
 
-The core proposition is straightforward: MCP defines a JSON-RPC 2.0 protocol for tool discovery and invocation between a client (the agent) and a server (the tool provider). The client sends `tools/list` to discover what a server offers, then `tools/call` to execute. The server describes each tool with a name, description, and JSON Schema for its inputs. That is the entire contract. Everything else -- transport selection, authentication, config loading, tool name normalization -- is the implementation work that turns a clean spec into something that survives contact with the real world.
+核心主张很简单：MCP 定义了一套 JSON-RPC 2.0 协议，用于客户端（代理）和服务端（工具提供方）之间的工具发现与调用。客户端先发送 `tools/list` 来发现服务端提供什么，再发送 `tools/call` 执行。服务端用名称、描述和输入的 JSON Schema 来描述每个工具。契约到此为止。其余一切，传输方式选择、认证、配置加载、工具名称规范化，都是把一个干净规范变成能经受现实世界考验的工程工作。
 
-Claude Code's MCP implementation spans four core files: `types.ts`, `client.ts`, `auth.ts`, and `InProcessTransport.ts`. Together they support eight transport types, seven configuration scopes, OAuth discovery across two RFCs, and a tool wrapping layer that makes MCP tools indistinguishable from built-in ones -- the same `Tool` interface covered in Chapter 6. This chapter walks through each layer.
+Claude Code 的 MCP 实现分布在四个核心文件中：`types.ts`、`client.ts`、`auth.ts` 和 `InProcessTransport.ts`。它们共同支持八种传输类型、七个配置作用域、跨两个 RFC 的 OAuth 发现，以及一层工具包装机制，让 MCP 工具与内置工具无法区分，也就是第 6 章讲过的同一个 `Tool` 接口。本章会逐层展开。
 
 ---
 
-## Eight Transport Types
+## 八种传输类型
 
-The first design decision in any MCP integration is how the client talks to the server. Claude Code supports eight transport configurations:
+任何 MCP 集成中的第一个设计决策，都是客户端如何与服务端通信。Claude Code 支持八种传输配置：
 
 ```mermaid
 flowchart TD
-    Q{Where is the<br/>MCP server?}
-    Q -->|Same machine| LOCAL
-    Q -->|Remote service| REMOTE
-    Q -->|Same process| INPROC
-    Q -->|IDE extension| IDE
+    Q{MCP<br/>服务端在哪里？}
+    Q -->|同一台机器| LOCAL
+    Q -->|远程服务| REMOTE
+    Q -->|同一进程| INPROC
+    Q -->|IDE 扩展| IDE
 
-    subgraph LOCAL["Local Process"]
-        STDIO["stdio<br/>stdin/stdout JSON-RPC<br/>Default, no auth"]
+    subgraph LOCAL["本地进程"]
+        STDIO["stdio<br/>stdin/stdout JSON-RPC<br/>默认，无认证"]
     end
 
-    subgraph REMOTE["Remote Server"]
-        HTTP["http (Streamable HTTP)<br/>Current spec, POST + optional SSE"]
-        SSE["sse (Server-Sent Events)<br/>Legacy transport, pre-2025"]
-        WS["ws (WebSocket)<br/>Bidirectional, rare"]
-        PROXY["claudeai-proxy<br/>Via Claude.ai infrastructure"]
+    subgraph REMOTE["远程服务端"]
+        HTTP["http (Streamable HTTP)<br/>当前规范，POST + 可选 SSE"]
+        SSE["sse (Server-Sent Events)<br/>旧传输，2025 年前的方案"]
+        WS["ws (WebSocket)<br/>双向，较少见"]
+        PROXY["claudeai-proxy<br/>通过 Claude.ai 基础设施"]
     end
 
-    subgraph INPROC["In-Process"]
-        SDK["sdk<br/>Control messages over stdin/stdout"]
-        LINKED["InProcessTransport<br/>Direct function calls, 63 lines"]
+    subgraph INPROC["进程内"]
+        SDK["sdk<br/>通过 stdin/stdout 传控制消息"]
+        LINKED["InProcessTransport<br/>直接函数调用，63 行"]
     end
 
-    subgraph IDE["IDE Extension"]
+    subgraph IDE["IDE 扩展"]
         SSEIDE["sse-ide"]
         WSIDE["ws-ide"]
     end
@@ -47,85 +47,85 @@ flowchart TD
     style HTTP fill:#bbdefb
 ```
 
-Three design choices are worth noting. First, `stdio` is the default -- when `type` is omitted, the system assumes a local subprocess. This is backwards-compatible with the earliest MCP configs. Second, the fetch wrappers stack: timeout wrapping outside step-up detection, outside the base fetch. Each wrapper handles one concern. Third, the `ws-ide` branch has a Bun/Node runtime split -- Bun's `WebSocket` accepts proxy and TLS options natively, while Node requires the `ws` package.
+有三个设计点值得注意。第一，`stdio` 是默认值，当 `type` 被省略时，系统会假定是一个本地子进程。这与最早的 MCP 配置保持向后兼容。第二，fetch 包装器是叠加的：超时包装在 step-up 检测之外，而 step-up 检测又包在基础 fetch 之外。每一层只处理一个问题。第三，`ws-ide` 分支存在 Bun/Node 运行时分流，Bun 的 `WebSocket` 原生支持代理和 TLS 选项，而 Node 需要 `ws` 包。
 
-**When to use which.** For local tools (filesystem, database, custom scripts), `stdio` -- no network, no auth, just pipes. For remote services, `http` (Streamable HTTP) is the current spec recommendation. `sse` is legacy but widely deployed. The `sdk`, IDE, and `claudeai-proxy` types are internal to their respective ecosystems.
-
----
-
-## Configuration Loading and Scoping
-
-MCP server configs load from seven scopes, merged and deduplicated:
-
-| Scope | Source | Trust |
-|-------|--------|-------|
-| `local` | `.mcp.json` in working directory | Requires user approval |
-| `user` | `~/.claude.json` mcpServers field | User-managed |
-| `project` | Project-level config | Shared project settings |
-| `enterprise` | Managed enterprise config | Pre-approved by org |
-| `managed` | Plugin-provided servers | Auto-discovered |
-| `claudeai` | Claude.ai web interface | Pre-authorized via web |
-| `dynamic` | Runtime injection (SDK) | Programmatically added |
-
-**Deduplication is content-based, not name-based.** Two servers with different names but the same command or URL are recognized as the same server. The `getMcpServerSignature()` function computes a canonical key: `stdio:["command","arg1"]` for local servers, `url:https://example.com/mcp` for remote ones. Plugin-provided servers whose signature matches a manual config are suppressed.
+**什么时候用哪种。** 本地工具（文件系统、数据库、自定义脚本）用 `stdio`，没有网络、没有认证，只有管道。远程服务则应使用 `http`（Streamable HTTP），这是当前规范推荐方案。`sse` 属于旧方案，但部署面很广。`sdk`、IDE 和 `claudeai-proxy` 类型都只存在于各自生态内部。
 
 ---
 
-## Tool Wrapping: From MCP to Claude Code
+## 配置加载与作用域
 
-When a connection succeeds, the client calls `tools/list`. Each tool definition is transformed into Claude Code's internal `Tool` interface -- the same interface used by built-in tools. After wrapping, the model cannot distinguish between a built-in tool and an MCP tool.
+MCP 服务端配置会从七个作用域加载，并进行合并和去重：
 
-The wrapping process has four stages:
+| 作用域 | 来源 | 信任级别 |
+|-------|------|---------|
+| `local` | 工作目录中的 `.mcp.json` | 需要用户批准 |
+| `user` | `~/.claude.json` 的 `mcpServers` 字段 | 由用户管理 |
+| `project` | 项目级配置 | 共享的项目设置 |
+| `enterprise` | 托管的企业配置 | 已由组织预先批准 |
+| `managed` | 插件提供的服务端 | 自动发现 |
+| `claudeai` | Claude.ai 网页界面 | 通过网页预授权 |
+| `dynamic` | 运行时注入（SDK） | 程序化添加 |
 
-**1. Name normalization.** `normalizeNameForMCP()` replaces invalid characters with underscores. The fully qualified name follows `mcp__{serverName}__{toolName}`.
-
-**2. Description truncation.** Capped at 2,048 characters. OpenAPI-generated servers have been observed dumping 15-60KB into `tool.description` -- roughly 15,000 tokens per turn for a single tool.
-
-**3. Schema passthrough.** The tool's `inputSchema` passes directly to the API. No transformation, no validation at wrapping time. Schema errors surface at call time, not registration time.
-
-**4. Annotation mapping.** MCP annotations map to behavior flags: `readOnlyHint` marks tools safe for concurrent execution (as discussed in Chapter 7's streaming executor), `destructiveHint` triggers extra permission scrutiny. These annotations come from the MCP server -- a malicious server could mark a destructive tool as read-only. This is an accepted trust boundary, but one worth understanding: the user opted into the server, and a malicious server marking destructive tools as read-only is a real attack vector. The system accepts this tradeoff because the alternative -- ignoring annotations entirely -- would prevent legitimate servers from improving the user experience.
+**去重依据是内容，而不是名称。** 两个名称不同、但命令或 URL 相同的服务端，会被识别为同一个服务端。`getMcpServerSignature()` 函数会计算一个规范化键：本地服务端用 `stdio:["command","arg1"]`，远程服务端用 `url:https://example.com/mcp`。如果插件提供的服务端签名与手动配置相同，就会被抑制。
 
 ---
 
-## OAuth for MCP Servers
+## 工具包装：从 MCP 到 Claude Code
 
-Remote MCP servers often require authentication. Claude Code implements the full OAuth 2.0 + PKCE flow with RFC-based discovery, Cross-App Access, and error body normalization.
+连接成功后，客户端会调用 `tools/list`。每个工具定义都会被转换成 Claude Code 内部的 `Tool` 接口，也就是内置工具使用的同一个接口。包装完成后，模型无法区分内置工具和 MCP 工具。
 
-### Discovery Chain
+包装过程分四步：
+
+**1. 名称规范化。** `normalizeNameForMCP()` 会把非法字符替换成下划线。完整名称遵循 `mcp__{serverName}__{toolName}`。
+
+**2. 描述截断。** 上限是 2,048 个字符。已经观察到 OpenAPI 生成的服务端会把 15-60KB 的内容塞进 `tool.description`，单个工具一次调用大约会浪费 15,000 个 token。
+
+**3. Schema 透传。** 工具的 `inputSchema` 会直接传给 API。不会做转换，也不会在包装时校验。Schema 错误会在调用时暴露，而不是注册时。
+
+**4. 注解映射。** MCP 注解会映射为行为标志：`readOnlyHint` 表示该工具可安全并发执行（第 7 章的流式执行器里提到过），`destructiveHint` 会触发额外的权限审查。这些注解来自 MCP 服务端，恶意服务端完全可以把破坏性工具标成只读。这是系统接受的信任边界，但也值得理解：用户是主动接入这个服务端的，而恶意服务端把破坏性工具标成只读，确实是一种现实攻击面。系统之所以接受这个权衡，是因为另一种做法，完全忽略注解，会让合法服务端无法改善用户体验。
+
+---
+
+## MCP 服务端的 OAuth
+
+远程 MCP 服务端通常需要认证。Claude Code 实现了完整的 OAuth 2.0 + PKCE 流程，包含基于 RFC 的发现、Cross-App Access，以及错误响应体归一化。
+
+### 发现链路
 
 ```mermaid
 flowchart TD
-    A[Server returns 401] --> B["RFC 9728 probe<br/>GET /.well-known/oauth-protected-resource"]
-    B -->|Found| C["Extract authorization_servers[0]"]
-    C --> D["RFC 8414 discovery<br/>against auth server URL"]
-    B -->|Not found| E["RFC 8414 fallback<br/>against MCP server URL with path-aware probing"]
-    D -->|Found| F[Authorization Server Metadata<br/>token endpoint, auth endpoint, scopes]
-    E -->|Found| F
-    D -->|Not found| G{authServerMetadataUrl<br/>configured?}
-    E -->|Not found| G
-    G -->|Yes| H[Direct metadata fetch<br/>bypass discovery]
-    G -->|No| I[Fail: no auth metadata]
+    A[服务端返回 401] --> B["RFC 9728 探测<br/>GET /.well-known/oauth-protected-resource"]
+    B -->|找到| C["提取 authorization_servers[0]"]
+    C --> D["RFC 8414 发现<br/>针对认证服务端 URL"]
+    B -->|未找到| E["RFC 8414 回退<br/>针对 MCP 服务端 URL，并按路径探测"]
+    D -->|找到| F[授权服务器元数据<br/>token endpoint, auth endpoint, scopes]
+    E -->|找到| F
+    D -->|未找到| G{是否配置了<br/>authServerMetadataUrl？}
+    E -->|未找到| G
+    G -->|是| H[直接拉取元数据<br/>绕过发现流程]
+    G -->|否| I[失败：没有认证元数据]
     H --> F
 
     style F fill:#c8e6c9
     style I fill:#ffcdd2
 ```
 
-The `authServerMetadataUrl` escape hatch exists because some OAuth servers implement neither RFC.
+`authServerMetadataUrl` 这个逃生口之所以存在，是因为有些 OAuth 服务端既不实现这个 RFC，也不实现那个 RFC。
 
 ### Cross-App Access (XAA)
 
-When an MCP server config has `oauth.xaa: true`, the system performs federated token exchange through an Identity Provider -- one IdP login unlocks multiple MCP servers.
+当某个 MCP 服务端配置了 `oauth.xaa: true` 时，系统会通过 Identity Provider 做联邦令牌交换，一次 IdP 登录即可解锁多个 MCP 服务端。
 
-### Error Body Normalization
+### 错误响应体归一化
 
-The `normalizeOAuthErrorBody()` function handles OAuth servers that violate the spec. Slack returns HTTP 200 for error responses with the error buried in the JSON body. The function peeks at 2xx POST response bodies, and when the body matches `OAuthErrorResponseSchema` but not `OAuthTokensSchema`, rewrites the response to HTTP 400. It also normalizes Slack-specific error codes (`invalid_refresh_token`, `expired_refresh_token`, `token_expired`) to the standard `invalid_grant`.
+`normalizeOAuthErrorBody()` 函数用于处理不符合规范的 OAuth 服务端。Slack 会对错误响应返回 HTTP 200，而错误信息被藏在 JSON 响应体里。这个函数会检查 2xx 的 POST 响应体，当响应体匹配 `OAuthErrorResponseSchema` 但不匹配 `OAuthTokensSchema` 时，会把响应改写为 HTTP 400。它还会把 Slack 特有的错误码（`invalid_refresh_token`、`expired_refresh_token`、`token_expired`）统一映射为标准的 `invalid_grant`。
 
 ---
 
-## In-Process Transport
+## 进程内传输
 
-Not every MCP server needs to be a separate process. The `InProcessTransport` class enables running an MCP server and client in the same process:
+不是每个 MCP 服务端都必须是独立进程。`InProcessTransport` 类支持让 MCP 服务端和客户端运行在同一个进程中：
 
 ```typescript
 class InProcessTransport implements Transport {
@@ -145,19 +145,19 @@ class InProcessTransport implements Transport {
 }
 ```
 
-The entire file is 63 lines. Two design decisions deserve attention. First, `send()` delivers via `queueMicrotask()` to prevent stack depth issues in synchronous request/response cycles. Second, `close()` cascades to the peer, preventing half-open states. The Chrome MCP server and Computer Use MCP server both use this pattern.
+整个文件只有 63 行。有两个设计决策值得注意。第一，`send()` 通过 `queueMicrotask()` 发送，避免同步请求/响应循环里的栈深度问题。第二，`close()` 会级联到对端，防止出现半开状态。Chrome MCP 服务端和 Computer Use MCP 服务端都采用了这种模式。
 
 ---
 
-## Connection Management
+## 连接管理
 
-### Connection States
+### 连接状态
 
-Each MCP server connection exists in one of five states: `connected`, `failed`, `needs-auth` (with a 15-minute TTL cache to prevent 30 servers from independently discovering the same expired token), `pending`, or `disabled`.
+每个 MCP 服务端连接都处于五种状态之一：`connected`、`failed`、`needs-auth`（带有 15 分钟 TTL 缓存，避免 30 个服务端各自去发现同一个过期 token）、`pending` 或 `disabled`。
 
-### Session Expiry Detection
+### 会话过期检测
 
-MCP's Streamable HTTP transport uses session IDs. When a server restarts, requests return HTTP 404 with JSON-RPC error code -32001. The `isMcpSessionExpiredError()` function checks both signals -- note that it uses string inclusion on the error message to detect the error code, which is pragmatic but fragile:
+MCP 的 Streamable HTTP 传输使用 session ID。服务端重启后，请求会返回 HTTP 404，并附带 JSON-RPC 错误码 -32001。`isMcpSessionExpiredError()` 函数会同时检查这两个信号，注意它是通过在错误消息里做字符串包含判断来检测错误码的，虽然实用，但也比较脆弱：
 
 ```typescript
 export function isMcpSessionExpiredError(error: Error): boolean {
@@ -168,49 +168,49 @@ export function isMcpSessionExpiredError(error: Error): boolean {
 }
 ```
 
-On detection, the connection cache clears and the call retries once.
+一旦检测到，连接缓存会被清空，并且调用会重试一次。
 
-### Batched Connections
+### 批量连接
 
-Local servers connect in batches of 3 (spawning processes can exhaust file descriptors), remote servers in batches of 20. The React context provider `MCPConnectionManager.tsx` manages the lifecycle, diffing current connections against new configs.
-
----
-
-## Claude.ai Proxy Transport
-
-The `claudeai-proxy` transport illustrates a common agent integration pattern: connecting through an intermediary. Claude.ai subscribers configure MCP "connectors" through the web interface, and the CLI routes through Claude.ai's infrastructure which handles vendor-side OAuth.
-
-The `createClaudeAiProxyFetch()` function captures the `sentToken` at request time, not re-read after a 401. Under concurrent 401s from multiple connectors, another connector's retry might have already refreshed the token. The function also checks for concurrent refreshes even when the refresh handler returns false -- the "ELOCKED contention" case where another connector won the lockfile race.
+本地服务端按 3 个一批建立连接（因为启动进程可能耗尽文件描述符），远程服务端按 20 个一批。React context provider `MCPConnectionManager.tsx` 负责管理生命周期，把当前连接与新配置做 diff。
 
 ---
 
-## Timeout Architecture
+## Claude.ai 代理传输
 
-MCP timeouts are layered, each protecting against a different failure mode:
+`claudeai-proxy` 传输展示了一种常见的代理集成模式：通过中介建立连接。Claude.ai 订阅用户会通过网页界面配置 MCP “connector”，而 CLI 则经由 Claude.ai 的基础设施路由，由那里处理供应商侧的 OAuth。
 
-| Layer | Duration | Protects Against |
-|-------|----------|------------------|
-| Connection | 30s | Unreachable or slow-starting servers |
-| Per-request | 60s (fresh per request) | Stale timeout signal bug |
-| Tool call | ~27.8 hours | Legitimately long operations |
-| Auth | 30s per OAuth request | Unreachable OAuth servers |
-
-The per-request timeout deserves emphasis. Early implementations created a single `AbortSignal.timeout(60000)` at connection time. After 60 seconds of idle time, the next request would abort immediately -- the signal was already expired. The fix: `wrapFetchWithTimeout()` creates a fresh timeout signal for every request. It also normalizes the `Accept` header as a last-step defense against runtimes and proxies that drop it.
+`createClaudeAiProxyFetch()` 函数会在请求时捕获 `sentToken`，而不是在收到 401 后重新读取。在多个 connector 并发返回 401 的情况下，另一个 connector 的重试可能已经刷新了 token。这个函数还会在 refresh handler 返回 false 时检查并发刷新，也就是 “ELOCKED contention” 的场景，另一个 connector 抢到了锁文件。
 
 ---
 
-## Apply This: Integrating MCP Into Your Own Agent
+## 超时架构
 
-**Start with stdio, add complexity later.** `StdioClientTransport` handles everything: spawn, pipe, kill. One line of config, one transport class, and you have MCP tools.
+MCP 的超时是分层设计的，每一层都针对不同的失败模式：
 
-**Normalize names and truncate descriptions.** Names must match `^[a-zA-Z0-9_-]{1,64}$`. Prefix with `mcp__{serverName}__` to avoid collisions. Cap descriptions at 2,048 characters -- OpenAPI-generated servers will waste context tokens otherwise.
+| 层级 | 时长 | 防范对象 |
+|------|------|----------|
+| 连接 | 30s | 无法访问或启动缓慢的服务端 |
+| 单次请求 | 60s（每次请求都会刷新） | 过期的超时信号 bug |
+| 工具调用 | 约 27.8 小时 | 合法但非常耗时的操作 |
+| 认证 | 每次 OAuth 请求 30s | 无法访问的 OAuth 服务端 |
 
-**Handle auth lazily.** Do not attempt OAuth until a server returns 401. Most stdio servers need no auth.
+单次请求超时尤其值得强调。早期实现会在连接建立时创建一个单独的 `AbortSignal.timeout(60000)`。在 60 秒空闲后，下一次请求会立刻中止，因为这个信号已经过期了。修复方式是：`wrapFetchWithTimeout()` 为每次请求创建一个新的超时信号。它还会在最后一步把 `Accept` 头归一化，作为对会丢弃该头的运行时和代理的最后防线。
 
-**Use in-process transport for built-in servers.** `createLinkedTransportPair()` eliminates subprocess overhead for servers you control.
+---
 
-**Respect tool annotations and sanitize output.** `readOnlyHint` enables concurrent execution. Sanitize responses against malicious Unicode (bidirectional overrides, zero-width joiners) that could mislead the model.
+## 这样做：把 MCP 集成进你自己的代理
 
-The MCP protocol is deliberately minimal -- two JSON-RPC methods. Everything between those methods and a production deployment is engineering: eight transports, seven config scopes, two OAuth RFCs, and timeout layering. Claude Code's implementation shows what that engineering looks like at scale.
+**先从 stdio 开始，再逐步增加复杂度。** `StdioClientTransport` 把启动、管道和终止都包办了。只要一行配置、一个传输类，你就能拿到 MCP 工具。
 
-The next chapter examines what happens when the agent reaches beyond localhost: the remote execution protocols that let Claude Code run in cloud containers, accept instructions from web browsers, and tunnel API traffic through credential-injecting proxies.
+**规范化名称并截断描述。** 名称必须匹配 `^[a-zA-Z0-9_-]{1,64}$`。前缀加上 `mcp__{serverName}__` 可以避免冲突。描述长度上限设为 2,048 字符，否则 OpenAPI 生成的服务端会白白浪费上下文 token。
+
+**把认证做成惰性的。** 只有当服务端返回 401 时才尝试 OAuth。大多数 stdio 服务端根本不需要认证。
+
+**对内置服务端使用进程内传输。** `createLinkedTransportPair()` 可以消除你自己控制的服务端的子进程开销。
+
+**尊重工具注解，并清理输出。** `readOnlyHint` 可以启用并发执行。要清理响应中的恶意 Unicode（双向覆盖字符、零宽连接符），这些内容可能误导模型。
+
+MCP 协议本身刻意保持极简，只有两个 JSON-RPC 方法。把这两个方法接到生产部署之间的所有部分，都是工程问题：八种传输、七个配置作用域、两个 OAuth RFC，以及分层超时。Claude Code 的实现展示了这种工程在规模化场景下会长成什么样。
+
+下一章会看代理越过 localhost 时会发生什么：那些让 Claude Code 能在云容器里运行、接受网页浏览器指令，并通过注入凭据的代理隧道转发 API 流量的远程执行协议。

@@ -9,7 +9,7 @@ const { currentSlug } = Astro.props;
 const rawBase = import.meta.env.BASE_URL;
 const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 
-// Determine which part is currently active
+// 判断当前激活的部分
 const currentChapterNum = currentSlug
   ? parseInt(currentSlug.match(/^ch(\d+)/)?.[1] || '0', 10)
   : 0;
@@ -28,7 +28,7 @@ const currentPart = currentChapterNum ? getPartForChapter(currentChapterNum) : n
             data-part-toggle={part.number}
             class="flex items-center justify-between w-full text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)] hover:text-[var(--color-terracotta)] transition-colors py-1"
           >
-            <span>Part {part.number}: {part.title}</span>
+            <span>第 {part.number} 部分：{part.title}</span>
             <svg
               class:list={[
                 'w-3 h-3 transition-transform',
@@ -88,7 +88,7 @@ const currentPart = currentChapterNum ? getPartForChapter(currentChapterNum) : n
       return (
         <div class="mb-4">
           <div class="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)] py-1">
-            Part {part.number}: {part.title}
+            第 {part.number} 部分：{part.title}
           </div>
           <ul class="mt-1 space-y-0.5">
             {partChapters.map((ch) => {
@@ -118,7 +118,7 @@ const currentPart = currentChapterNum ? getPartForChapter(currentChapterNum) : n
 </div>
 
 <script>
-  // Part toggle (desktop)
+  // 部分切换（桌面端）
   document.querySelectorAll('[data-part-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const partNum = (btn as HTMLElement).dataset.partToggle;
@@ -129,7 +129,7 @@ const currentPart = currentChapterNum ? getPartForChapter(currentChapterNum) : n
     });
   });
 
-  // Mobile sidebar
+  // 移动端侧边栏
   const toggle = document.getElementById('sidebar-toggle');
   const overlay = document.getElementById('sidebar-overlay');
   const mobile = document.getElementById('sidebar-mobile');

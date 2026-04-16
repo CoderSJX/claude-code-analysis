@@ -38,23 +38,23 @@ interface AppStateField {
 }
 
 const bootstrapFields: BootstrapField[] = [
-  { key: "sessionId", value: "a3f7c...", description: "Unique per process, generated via crypto.randomUUID()" },
-  { key: "model", value: "claude-sonnet-4", description: "Current model for API calls, set by mainLoopModelOverride" },
-  { key: "projectRoot", value: "/users/dev/proj", description: "NFC-normalized path, frozen after init()" },
-  { key: "totalCostUSD", value: "$0.42", description: "Monotonically accumulating session cost" },
-  { key: "permissionMode", value: "default", description: "Trust boundary for tool execution" },
-  { key: "isInteractive", value: "true", description: "REPL vs one-shot mode flag" },
-  { key: "promptCache1hEligible", value: "true", description: "Sticky latch -- extended cache TTL" },
-  { key: "afkModeHeaderLatched", value: "null", description: "Sticky latch -- once true, never false" },
+  { key: "sessionId", value: "a3f7c...", description: "每个进程唯一，通过 crypto.randomUUID() 生成" },
+  { key: "model", value: "claude-sonnet-4", description: "当前用于 API 调用的模型，由 mainLoopModelOverride 设置" },
+  { key: "projectRoot", value: "/users/dev/proj", description: "NFC 规范化路径，在 init() 后冻结" },
+  { key: "totalCostUSD", value: "$0.42", description: "会话成本单调递增" },
+  { key: "permissionMode", value: "default", description: "工具执行的信任边界" },
+  { key: "isInteractive", value: "true", description: "REPL vs 单次模式标志" },
+  { key: "promptCache1hEligible", value: "true", description: "粘性锁存 -- 延长缓存 TTL" },
+  { key: "afkModeHeaderLatched", value: "null", description: "粘性锁存 -- 一旦为 true，就不会再变回 false" },
 ];
 
 const appStateFields: AppStateField[] = [
-  { key: "mainLoopModel", value: "claude-sonnet-4", description: "Model displayed in the UI and used for next API call" },
-  { key: "theme", value: "dark", description: "UI theme preference" },
-  { key: "verbose", value: "false", description: "Show detailed output toggle" },
-  { key: "permissionMode", value: "default", description: "Synced to Bootstrap STATE and CCR on change" },
-  { key: "messages", value: "[...28 msgs]", description: "Conversation history for UI rendering" },
-  { key: "tasks", value: "{agent-1: ...}", description: "Active subagent task tracking" },
+  { key: "mainLoopModel", value: "claude-sonnet-4", description: "UI 中展示并用于下一次 API 调用的模型" },
+  { key: "theme", value: "dark", description: "UI 主题偏好" },
+  { key: "verbose", value: "false", description: "显示详细输出的开关" },
+  { key: "permissionMode", value: "default", description: "变更时同步到 Bootstrap STATE 和 CCR" },
+  { key: "messages", value: "[...28 msgs]", description: "用于 UI 渲染的对话历史" },
+  { key: "tasks", value: "{agent-1: ...}", description: "活跃的子智能体任务跟踪" },
 ];
 
 type AnimationStep =
@@ -65,11 +65,11 @@ type AnimationStep =
   | "api-reads";
 
 const STEP_LABELS: Record<AnimationStep, string> = {
-  idle: "Click \"Change Model\" to see the two-tier flow",
-  "dispatch-appstate": "1. UI dispatches to AppState store",
-  "onchange-fires": "2. onChange side effect fires synchronously",
-  "bootstrap-updates": "3. Bootstrap STATE.model is updated",
-  "api-reads": "4. Next API call reads from Bootstrap STATE",
+  idle: "点击“更改模型”查看双层流程",
+  "dispatch-appstate": "1. UI 分发到 AppState store",
+  "onchange-fires": "2. onChange 副作用同步触发",
+  "bootstrap-updates": "3. Bootstrap STATE.model 已更新",
+  "api-reads": "4. 下一次 API 调用读取 Bootstrap STATE",
 };
 
 interface StickyLatch {
@@ -93,7 +93,7 @@ export default function StateTwoTier({ className }: Props) {
   // Sticky latch demo
   const [thinkingLatch, setThinkingLatch] = useState<StickyLatch>({
     value: null,
-    label: "Extended thinking",
+    label: "扩展思考",
   });
 
   const timeoutRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -133,23 +133,23 @@ export default function StateTwoTier({ className }: Props) {
 
     const newModel = bootstrapModel === "claude-sonnet-4" ? "claude-opus-4" : "claude-sonnet-4";
 
-    // Step 1: dispatch to AppState
+      // 步骤 1：分发到 AppState
     setAnimStep("dispatch-appstate");
     setAppStateModel(newModel);
 
     const t1 = setTimeout(() => {
-      // Step 2: onChange fires
+      // 步骤 2：onChange 触发
       setAnimStep("onchange-fires");
     }, 900);
 
     const t2 = setTimeout(() => {
-      // Step 3: Bootstrap updates
+      // 步骤 3：更新 Bootstrap
       setAnimStep("bootstrap-updates");
       setBootstrapModel(newModel);
     }, 1800);
 
     const t3 = setTimeout(() => {
-      // Step 4: API reads
+      // 步骤 4：API 读取
       setAnimStep("api-reads");
     }, 2700);
 
@@ -163,14 +163,14 @@ export default function StateTwoTier({ className }: Props) {
 
   const toggleThinkingLatch = useCallback(() => {
     setThinkingLatch((prev) => {
-      // Once latched true, it never goes back
-      if (prev.value === true) return prev; // stuck!
+      // 一旦锁存为 true，就不会再回退
+      if (prev.value === true) return prev; // 卡住了！
       return { ...prev, value: true };
     });
   }, []);
 
   const resetLatch = useCallback(() => {
-    setThinkingLatch({ value: null, label: "Extended thinking" });
+      setThinkingLatch({ value: null, label: "扩展思考" });
   }, []);
 
   // Field row component

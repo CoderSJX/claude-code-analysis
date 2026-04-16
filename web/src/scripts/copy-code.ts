@@ -1,4 +1,4 @@
-// Add copy buttons to all code blocks
+// 为所有代码块添加复制按钮
 document.querySelectorAll('pre').forEach((pre) => {
   const wrapper = document.createElement('div');
   wrapper.className = 'code-block-wrapper';
@@ -7,16 +7,16 @@ document.querySelectorAll('pre').forEach((pre) => {
 
   const btn = document.createElement('button');
   btn.className = 'copy-button';
-  btn.textContent = 'Copy';
+  btn.textContent = '复制';
   btn.addEventListener('click', async () => {
     const code = pre.querySelector('code')?.textContent || pre.textContent || '';
     try {
       await navigator.clipboard.writeText(code);
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      btn.textContent = '已复制';
+      setTimeout(() => { btn.textContent = '复制'; }, 2000);
     } catch {
-      btn.textContent = 'Failed';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+      btn.textContent = '失败';
+      setTimeout(() => { btn.textContent = '复制'; }, 2000);
     }
   });
   wrapper.appendChild(btn);

@@ -1,47 +1,47 @@
-# Chapter 11: Memory -- Learning Across Conversations
+# 第 11 章：记忆 -- 跨会话学习
 
-## The Stateless Problem
+## 无状态问题
 
-Every chapter so far has described machinery that exists within a single session. The agent loop runs, tools execute, sub-agents coordinate, and when the process exits, all of it vanishes. The next conversation starts with the same system prompt, the same tool definitions, the same model -- and zero knowledge of what happened before.
+到目前为止，每一章描述的都是只存在于单次会话中的机制。agent 循环运行、工具执行、子代理协作，而当进程退出时，这一切都会消失。下一次对话会带着同样的 system prompt、同样的工具定义、同样的模型 -- 以及对上一次发生了什么的完全空白。
 
-This is the fundamental limitation of a stateless architecture. A developer corrects the model's testing approach on Monday, and on Tuesday the model makes the same mistake. A user explains their role, their project's constraints, their preferences for code style, and every new session requires them to explain it again. The model is not forgetful -- it never knew. Each conversation is an independent universe.
+这就是无状态架构的根本局限。某位开发者在周一纠正了模型的测试策略，到了周二模型又犯同样的错。用户解释了自己的角色、项目约束、代码风格偏好，而每一次新会话都要重新解释一遍。模型不是健忘 -- 它从来就不知道。每次对话都是一个独立宇宙。
 
-The problem is not theoretical. It manifests in concrete ways that erode trust. A user says "remember, we use real database instances in tests, not mocks" -- and next week the model generates mocked tests. A user explains they are a senior engineer who does not need beginner explanations -- and the next session opens with a tutorial-level walkthrough. Without memory, every session starts at zero. The agent is perpetually a new hire on their first day.
+这个问题并不抽象，它会以具体形式侵蚀信任。用户说“记住，我们在测试里用真实数据库实例，不用 mock” -- 结果下周模型又生成了 mock 测试。用户解释自己是资深工程师，不需要入门级讲解 -- 下一次会话开头又是教程式的逐步说明。没有记忆，所有会话都从零开始。agent 永远像第一天入职的新员工。
 
-The standard solution in the industry is Retrieval-Augmented Generation (RAG): embed documents into vectors, store them in a vector database, and retrieve relevant chunks at query time. This works well for knowledge bases -- documentation, FAQs, reference material. But it is architecturally mismatched for what an agent actually needs to remember across sessions. An agent's memory is not a knowledge base. It is a collection of observations: who the user is, what they have corrected, what the project's current constraints are, where to find things. These observations are small, change frequently, and must be human-editable. A vector database solves the wrong problem.
+业界的标准方案是检索增强生成（RAG）：把文档嵌入成向量，存到向量数据库里，在查询时检索相关片段。它对知识库很有效 -- 文档、FAQ、参考资料。但对 agent 真正需要跨会话记住的东西来说，这种架构并不匹配。agent 的记忆不是知识库，而是一组观察：用户是谁、他们纠正过什么、项目当前的约束是什么、信息该去哪里找。这些观察体量小、变化快，而且必须允许人工编辑。向量数据库解决的是错误的问题。
 
-Claude Code's memory system is a different bet entirely: files on disk, Markdown format, LLM-powered recall, no infrastructure. The bet is that simplicity in storage, combined with intelligence in retrieval, produces a better system than sophistication in both.
+Claude Code 的记忆系统选择了一条完全不同的路：磁盘文件、Markdown 格式、LLM 驱动的回忆、零基础设施。它的赌注是：把存储做得简单，同时把检索做得聪明，最终会比两边都复杂的方案更好。
 
-The design philosophy has consequences that shape the entire system:
+这个设计哲学会对整个系统产生一连串后果：
 
-- **Human-readable.** A user who wants to see what Claude Code remembers can open `~/.claude/projects/<slug>/memory/MEMORY.md` in any text editor. No special tools, no decryption, no export command.
-- **Human-editable.** A stale memory can be corrected with vim. A wrong memory can be deleted with `rm`. The user has full agency over the agent's knowledge.
-- **Version-controllable.** Team memories can be committed to git. Memory changes diff cleanly because they are Markdown.
-- **Zero infrastructure.** The memory system works offline, works without a server, works on any OS that has a filesystem. There is no migration path because there is no schema.
-- **Debuggable.** When memory behaves unexpectedly, the diagnosis path is `ls` and `cat`, not query logs and database inspection.
+- **人类可读。** 想看 Claude Code 记住了什么，用户可以直接用任意文本编辑器打开 `~/.claude/projects/<slug>/memory/MEMORY.md`。不需要专用工具、不需要解密、不需要导出命令。
+- **人类可编辑。** 过时的记忆可以用 vim 修正，错误的记忆可以用 `rm` 删除。用户对 agent 的知识拥有完全控制权。
+- **可版本控制。** 团队记忆可以提交到 git。因为它们是 Markdown，变更可以干净地 diff 出来。
+- **零基础设施。** 这个记忆系统离线可用、无服务器也可用、在任何带文件系统的操作系统上都能跑。没有迁移路径，因为没有 schema。
+- **可调试。** 当记忆行为异常时，排查方式是 `ls` 和 `cat`，而不是查 query log 和数据库。
 
-The model both reads and writes memories using `FileWriteTool` and `FileEditTool` -- the same tools it uses to edit source code (introduced in Chapter 6). No special memory API exists. The system prompt teaches the model a two-step write protocol (create file, update index), and the model executes it with its existing capabilities under new instructions. This is tool reuse as architectural principle -- the memory system is not a subsystem bolted onto the agent, it is an emergent behavior of the agent using its existing capabilities.
+模型通过 `FileWriteTool` 和 `FileEditTool` 读写记忆 -- 和它编辑源代码时使用的是同一套工具（第 6 章已经介绍）。系统里没有单独的 memory API。系统 prompt 教模型一套两步写入协议（创建文件、更新索引），模型就用自己已有的能力在新指令下执行。这是把工具复用当成架构原则 -- 记忆系统不是外挂到 agent 上的子系统，而是 agent 利用现有能力自然涌现出来的行为。
 
-There is a deeper reason the file-based choice works here. Memory, for an AI agent, is fundamentally different from memory in a traditional application. A traditional application's database holds authoritative state -- the source of truth for the system's data. An agent's memory holds *observations* -- things that were true at a point in time and may or may not still be true. Files communicate this epistemological status naturally. They have modification times that reveal when the observation was recorded. They can be read, edited, and deleted by humans who know the observation is wrong. A database suggests permanence and authority; a Markdown file suggests a note that someone wrote down and might need to update. The storage medium communicates the nature of the data -- these are working notes, not gospel.
+这里选择基于文件还有一个更深层的原因。对 AI agent 来说，记忆和传统应用里的记忆根本不同。传统应用的数据库保存的是权威状态 -- 系统数据的唯一事实来源。agent 的记忆保存的是*观察* -- 某个时间点上成立、之后也许会变的事情。文件天然表达了这种认识论地位。它们有修改时间，可以看出观察是什么时候记录的。知道它错了的人可以读、改、删。数据库暗示的是永久性和权威性；Markdown 文件暗示的是一条记录下来、可能还得更新的便签。存储介质本身就在传达数据的性质 -- 这些是工作笔记，不是教条。
 
-### Per-Project Scoping
+### 按项目作用域划分
 
-Memory is scoped to the git repository root, not the working directory. If a user opens a terminal in `src/components/` and another in `tests/`, both sessions share the same memory directory. The resolution logic finds the canonical git root first, falling back to the project root:
+记忆的作用域是 git 仓库根目录，而不是当前工作目录。用户即使在 `src/components/` 打开一个终端、在 `tests/` 打开另一个终端，它们共享的也是同一个记忆目录。解析逻辑会先找 canonical git root，再回退到项目根目录：
 
-The base path resolution finds the canonical git root first, falling back to the project root. This ensures all git worktrees of the same repository share a single memory directory.
+基础路径解析会优先找到 canonical git root，然后回退到项目根目录。这样同一个仓库的所有 git worktree 都会共享一个记忆目录。
 
-The `findCanonicalGitRoot` call ensures that all git worktrees of the same repository share a single memory directory. The git root is sanitized (slashes become dashes, via `sanitizePath()`) to produce a flat directory name:
+`findCanonicalGitRoot` 调用确保同一仓库的所有 git worktree 共用一个记忆目录。git root 会经过清理（斜杠变成连字符，通过 `sanitizePath()`），从而生成一个扁平目录名：
 
 ```
 ~/.claude/projects/-Users-alex-code-myapp/memory/
 ```
 
-A fully populated memory directory reveals the system's structure:
+一个填充完整的记忆目录会呈现出系统的结构：
 
 ```mermaid
 graph LR
     subgraph "~/.claude/projects/slug/memory/"
-        MEMORY["MEMORY.md<br/><i>always loaded</i>"]
+        MEMORY["MEMORY.md<br/><i>始终加载</i>"]
         UR["user_role.md"]
         FT["feedback_testing.md"]
         PM["project_merge_freeze.md"]
@@ -56,43 +56,43 @@ graph LR
         end
     end
 
-    MEMORY -->|"on-demand via<br/>Sonnet selector"| UR
-    MEMORY -->|"on-demand"| FT
-    MEMORY -->|"on-demand"| PM
-    MEMORY -->|"on-demand"| RR
+    MEMORY -->|"按需通过<br/>Sonnet selector"| UR
+    MEMORY -->|"按需"| FT
+    MEMORY -->|"按需"| PM
+    MEMORY -->|"按需"| RR
 ```
 
-The naming convention is semantic: `<type>_<topic>.md`. The type prefix is not enforced by code but is part of the prompt's instructions, making it easy to visually scan the directory and understand the memory landscape.
+命名约定是语义化的：`<type>_<topic>.md`。类型前缀不是代码强制的，但写进了 prompt 指令里，因此目录一眼就能扫出记忆版图。
 
 ---
 
-## The Four-Type Taxonomy
+## 四类记忆分类
 
-Not everything is worth remembering. The memory system constrains all memories to exactly four types:
+不是所有东西都值得记住。记忆系统把所有记忆严格限定为四种类型：
 
-The four types are: **user**, **feedback**, **project**, and **reference**.
+这四种类型是：**user**、**feedback**、**project**、**reference**。
 
-The taxonomy is designed around a single criterion: **is this knowledge derivable from the current project state?** Code patterns, architecture, file structure, git history -- all of these can be re-derived by reading the codebase. They are excluded. The four types capture what cannot be re-derived.
+这套分类围绕一个单一标准来设计：**这条知识能否从当前项目状态重新推导出来？** 代码模式、架构、文件结构、git 历史 -- 这些都可以通过读代码库重新获得，所以不算。四种类型只捕捉那些无法重新推导的内容。
 
-**User memories** record information about the person: their role, goals, responsibilities, expertise level. A senior Go engineer who is new to React gets different explanations than a first-time programmer.
+**用户记忆** 记录人的信息：角色、目标、职责、熟练程度。一个熟悉 Go 但刚接触 React 的资深 Go 工程师，会得到和第一次写程序的人不同的解释方式。
 
-**Feedback memories** capture guidance about how to approach work -- both corrections and confirmations. The system explicitly instructs the model to record both: "if you only save corrections, you will drift away from approaches the user has already validated." Each feedback memory has a specific structure: the rule itself, then a `**Why:**` line with the reason (often a past incident), then a `**How to apply:**` line with the trigger conditions.
+**反馈记忆** 记录做事方式上的指导 -- 包括纠正和确认。系统明确要求模型两者都记：“如果你只保存纠正，你会逐渐偏离用户已经验证过的方法。” 每条反馈记忆都有固定结构：先写规则本身，再写一行“原因”，说明为什么要记这条（通常是过去的事故），然后再写一行“如何应用”，说明触发条件。
 
-**Project memories** record ongoing work context -- who is doing what, why, by when. The prompt emphasizes converting relative dates to absolute: "Thursday" becomes "2026-03-05" so the memory remains interpretable weeks later.
+**项目记忆** 记录正在进行的工作上下文 -- 谁在做什么、为什么做、截止日期是什么。prompt 特别强调要把相对日期转成绝对日期：比如“Thursday”要写成“2026-03-05”，这样几周后它仍然可读。
 
-**Reference memories** are bookmarks -- pointers to where information lives in external systems. A Linear project URL, a Grafana dashboard, a Slack channel. These tell the model where to look, not what to find.
+**参考记忆** 是书签 -- 指向外部系统里信息所在的位置。比如 Linear 项目 URL、Grafana 仪表盘、Slack 频道。它们告诉模型去哪里找，不告诉模型要找什么。
 
-### The Taxonomy as Filter
+### 分类即过滤器
 
-The four types are not just categories -- they are a filter. By defining exactly what counts as a memory, the system implicitly defines what does not. Without the taxonomy, an eager model would save everything: code patterns, architecture diagrams, error messages. All derivable from the codebase. Saving it creates a parallel, potentially stale copy of information that is better sourced from its origin.
+四种类型不只是分类 -- 它们本身就是过滤器。通过精确定义什么算 memory，系统也就隐式定义了什么不算。没有这套分类，贪心的模型会把什么都存：代码模式、架构图、错误信息。可这些都能从代码库本身重新推导。把它们存起来，只会制造一份平行的、可能过时的信息副本，而这些信息本来更应该从源头读取。
 
-The taxonomy also prevents a subtler failure: memory as crutch. If the model saves architectural decisions as memories, it stops reading the codebase to understand architecture. By excluding derivable information, the system forces the model to stay grounded in the current state of the code.
+这套分类还阻止了一种更隐蔽的失败：把 memory 当拐杖。如果模型把架构决策也存成 memory，它就不再去读代码库理解架构了。通过排除可推导信息，系统迫使模型始终锚定在代码的当前状态上。
 
-The exclusion list is explicit: code patterns, git history, debugging solutions, anything in CLAUDE.md, ephemeral task details. These exclusions apply even when the user explicitly asks to save. If a user says "remember this PR list," the model is instructed to push back -- "what was *surprising* or *non-obvious* about it?" That surprising part is worth keeping. The raw list is not. This instruction was validated through evals, going from 0/2 to 3/3 when the exclusion-override instruction was added.
+排除列表是明确的：代码模式、git 历史、调试方案、CLAUDE.md 里的任何内容、短暂的任务细节。即使用户明确要求保存，这些也会被排除。如果用户说“记住这个 PR 列表”，模型会被要求追问 -- “里面有什么是*出乎意料*或*不明显*的？”真正值得保存的是那部分意外或不明显的内容。原始列表本身不值得。这个指令经过 eval 验证，在加入排除覆盖指令后，从 0/2 提升到了 3/3。
 
-### Frontmatter as Contract
+### 元数据头部作为契约
 
-Every memory file uses YAML frontmatter with three required fields:
+每个记忆文件都使用 YAML frontmatter，并包含三个必需字段：
 
 ```markdown
 ---
@@ -102,17 +102,17 @@ type: {{user, feedback, project, reference}}
 ---
 ```
 
-The `description` is the most load-bearing field. It is what the relevance selector (a Sonnet side-query, discussed below) uses to decide whether to surface this memory. A vague description like "testing stuff" will either match too broadly or fail to match at all. A specific description like "Integration tests must hit real DB, not mocks -- burned by mock divergence Q4" matches exactly the conversations where it matters. The description is the memory's search index -- consumed not by a search engine but by a language model that can understand nuance, context, and intent.
+`description` 是最关键的字段。相关性选择器（下面会讲到的 Sonnet 子查询）就是用它来判断要不要加载这条记忆。像“testing stuff”这样模糊的描述，要么匹配太宽，要么干脆匹配不上。像“Integration tests must hit real DB, not mocks -- burned by mock divergence Q4”这样具体的描述，能精确匹配到需要它的对话。description 就是记忆的检索索引 -- 只不过它不是给搜索引擎，而是给一个能理解细微差别、上下文和意图的语言模型。
 
-The frontmatter is also the only part of the file that the scanning system reads during recall. `scanMemoryFiles()` reads each file only to its first 30 lines to extract the header. The body is private until the file is explicitly selected and loaded.
+frontmatter 还是扫描系统在回忆时读取的唯一部分。`scanMemoryFiles()` 只会读取每个文件前 30 行，用来提取 header。正文只有在文件被明确选中并加载时才会进入上下文。
 
 ---
 
-## The Write Path
+## 写入路径
 
-Writing a memory is a two-step process executed with standard file tools.
+写记忆是一个两步流程，用的就是标准文件工具。
 
-**Step 1: Write the memory file.** The model creates a `.md` file in the memory directory with YAML frontmatter:
+**步骤 1：写记忆文件。** 模型在 memory 目录里创建一个 `.md` 文件，并写入 YAML 元数据头：
 
 ```markdown
 ---
@@ -123,130 +123,128 @@ type: feedback
 
 Don't mock the database in integration tests.
 
-**Why:** We got burned last quarter when mocked tests passed but production
-queries hit edge cases the mocks didn't cover.
+**为什么：** 上个季度我们就栽过一次，mock 测试虽然通过了，但生产查询碰到了 mock 没覆盖到的边界情况。
 
-**How to apply:** Any test file under `__tests__/` that touches database
-operations should use the real PGlite instance from test-utils.
+**如何应用：** `__tests__/` 下所有涉及数据库操作的测试文件，都应该使用 test-utils 里的真实 PGlite 实例。
 ```
 
-**Step 2: Update the index.** The model adds a one-line pointer to `MEMORY.md`:
+**步骤 2：更新索引。** 模型向 `MEMORY.md` 添加一条一行的指针：
 
 ```markdown
 - [Testing Policy](feedback_testing.md) -- integration tests must hit real DB
 ```
 
-Each entry must stay under approximately 150 characters. The index is a table of contents, not a knowledge base.
+每条索引项都必须控制在大约 150 个字符以内。索引是目录，而不是知识库。
 
-When the model learns new information that modifies an existing memory, it uses `FileEditTool` to update the existing file rather than creating a duplicate. The system does not version memories internally -- the file is on the local filesystem, and the user has `git` if they want versioning. Before the prompt is built, `ensureMemoryDirExists()` creates the memory directory, and the prompt tells the model the directory already exists, avoiding wasted turns on `ls` and `mkdir -p`.
+当模型学到的新信息会修改已有记忆时，它会使用 `FileEditTool` 更新现有文件，而不是创建重复项。系统内部不做记忆版本管理 -- 文件就在本地文件系统上，用户如果需要版本控制可以直接用 `git`。在 prompt 构建之前，`ensureMemoryDirExists()` 会先创建 memory 目录，prompt 也会告诉模型这个目录已经存在，从而避免无意义地 `ls` 和 `mkdir -p`。
 
 ---
 
-## The Recall Path
+## 回忆路径
 
-Writing memories is necessary but not sufficient. The harder problem is retrieval: given a user's query, which of the potentially hundreds of memory files should be loaded into the model's context? Loading all of them would exhaust the token budget. Loading none would defeat the purpose. Loading the wrong ones would waste tokens on irrelevant information while missing the knowledge that would have changed the model's behavior.
+写记忆是必要条件，但还不够。更难的问题是检索：给定用户的查询，在潜在的数百个记忆文件里，应该把哪几个加载进模型上下文？全部加载会耗尽 token 预算；一个都不加载则失去意义；加载错了又会把 token 浪费在无关信息上，同时错过真正会改变模型行为的知识。
 
-The recall system operates in two tiers. The `MEMORY.md` index is always loaded into context at session start, providing orientation. Individual memory files are surfaced on-demand through an LLM-powered relevance query that selects up to five memories per turn.
+回忆系统分两层工作。`MEMORY.md` 索引在会话开始时始终加载到上下文里，提供方向感。单独的记忆文件则通过一个由 LLM 驱动的相关性查询按需浮现，每次最多选出五条记忆。
 
-### The Full Recall Pipeline
+### 完整回忆流水线
 
 ```mermaid
 flowchart TD
-    A[User submits query] --> B[startRelevantMemoryPrefetch<br/>fires async, parallel with main model]
-    B --> C[scanMemoryFiles reads all .md files<br/>parses frontmatter, 30 lines max per file]
-    C --> D[Filter already-surfaced paths]
-    D --> E[formatMemoryManifest<br/>one line per file: type, name, date, description]
-    E --> F[Sonnet side-query receives manifest +<br/>user query + recently-used tools]
-    F --> G[Sonnet returns up to 5 filenames<br/>via structured JSON output]
-    G --> H[Validate filenames against known set<br/>catching hallucinated names]
-    H --> I[Read selected files in full<br/>attach as relevant_memories with staleness warnings]
-    I --> J[Collapse groups in UI<br/>absorb attachments for rendering]
+    A[User submits query] --> B[startRelevantMemoryPrefetch<br/>异步触发，与主模型并行]
+    B --> C[scanMemoryFiles 读取所有 .md 文件<br/>解析 frontmatter，每个文件最多 30 行]
+    C --> D[过滤掉已经浮现过的路径]
+    D --> E[formatMemoryManifest<br/>每个文件一行：type, name, date, description]
+    E --> F[Sonnet side-query 接收 manifest +<br/>用户 query + 最近使用过的工具]
+    F --> G[Sonnet 返回最多 5 个文件名<br/>通过结构化 JSON 输出]
+    G --> H[把文件名和已知集合校验<br/>捕捉幻觉出来的名字]
+    H --> I[完整读取被选中的文件<br/>以 relevant_memories 附加，并提示陈旧风险]
+    I --> J[在 UI 中折叠分组<br/>吸收附件用于渲染]
 
     style B fill:#e1f5fe
     style F fill:#fff3e0
 ```
 
-The async prefetch in step 2 is the key performance decision. By the time the main model reaches a point where recalled context would be useful, the side-query has usually already completed. The user experiences no additional latency.
+第 2 步里的异步预取是关键性能决策。当主模型推进到需要回忆上下文的时刻时，side-query 通常已经完成了。用户不会感受到额外延迟。
 
-### The Sonnet Side-Query
+### Sonnet side-query
 
-The manifest is sent to a Sonnet model as a side-query. The system prompt for this selector is precise:
+manifest 会作为 side-query 发给 Sonnet 模型。selector 的 system prompt 写得很精确：
 
-The system prompt for the selector instructs it to be conservative: include only memories that will be useful for the current query, skip memories if uncertain, and avoid selecting API/usage documentation for tools already in active use (since the model already has those tools loaded) -- but still surface warnings, gotchas, or known issues about those tools.
+selector 的 system prompt 要求它保持保守：只包含对当前查询有用的记忆，在不确定时跳过，避免选择那些已经在使用中的工具的 API/usage 文档（因为模型已经加载了这些工具） -- 但仍然要浮现这些工具的警告、坑点或已知问题。
 
-The response uses structured output -- `{ selected_memories: string[] }` -- and filenames are validated against the known set.
+返回结果使用结构化输出 -- `{ selected_memories: string[] }` -- 然后把文件名和已知集合进行校验。
 
-This approach trades latency for precision, and the tradeoff analysis is instructive. **Keyword matching** would be fast but has no understanding of context -- it cannot express "do not select memories for tools already in active use." **Embedding similarity** handles semantic matching but introduces infrastructure (embedding model, vector store, update pipeline) and struggles with negation -- the embedding of "do NOT use database mocks" is very close to "use database mocks." **The Sonnet side-query** understands semantic relevance, reasons about context, handles negation, and requires zero infrastructure. The latency cost is bounded (hundreds of milliseconds) and hidden behind the main model's initial processing.
+这套做法是在延迟和精度之间做权衡，而且权衡结果很有启发性。**关键词匹配** 很快，但不理解上下文 -- 它没法表达“不要选择那些已经在使用中的工具的记忆”。**向量相似度** 能处理语义匹配，但会引入基础设施（embedding 模型、向量存储、更新流水线），而且不擅长处理否定句 -- “不要使用数据库 mock”的 embedding 距离“使用数据库 mock”其实很近。**Sonnet side-query** 能理解语义相关性、推理上下文、处理否定，而且不需要任何基础设施。延迟成本是可控的（几百毫秒），并且被主模型的初始处理阶段掩盖掉了。
 
-The telemetry system tracks selection rates even when no memories are selected. A selection rate of 0/150 means something different from 0/3 -- the first indicates a precision problem, the second a coverage problem.
-
----
-
-## Staleness
-
-The staleness system addresses a failure mode that emerged from real usage. Users reported that old memories -- containing file:line citations to code that had since changed -- were being asserted as fact by the model. The citation made the stale claim sound *more* authoritative, not less.
-
-The solution is not expiration. Old memories are not deleted -- they may contain institutional knowledge valid for years. Instead, the system attaches age warnings:
-
-The staleness function computes the memory's age in days. Memories from today or yesterday get no warning (the function returns an empty string). Everything older gets a caveat injected alongside the memory content: a message stating the age in days and warning that code behavior claims or file:line citations may be outdated, advising verification against current code.
-
-Memories from today or yesterday get no warning. Everything older gets a staleness caveat injected alongside the memory content. The human-readable format -- "today," "yesterday," "47 days ago" -- exists because models are poor at date arithmetic. A raw ISO timestamp does not trigger staleness reasoning the way "47 days ago" does. This is an empirical observation about model behavior, validated through evals: the action-cue framing "Before recommending from memory" scored 3/3 versus 0/3 for the more abstract "Trusting what you recall," with identical body text.
-
-There is a philosophical tension worth naming. The staleness system treats memories as hypotheses, not facts. But the model's natural tendency is to present information confidently. The staleness warning is fighting the model's own voice -- using its instruction-following capability to override its confidence-generation tendency.
+遥测系统会追踪选择率，即使最终没有选中任何记忆。0/150 和 0/3 代表的事情不同 -- 前者说明精度问题，后者说明覆盖问题。
 
 ---
 
-## MEMORY.md as the Always-Loaded Index
+## 陈旧性
 
-Every conversation begins with `MEMORY.md` in context. It is not a memory -- it is an index, a table of contents for the actual memory files.
+陈旧性系统解决的是一个从真实使用中暴露出来的故障模式。用户报告说，旧记忆里带着已经变化过的代码的 file:line 引用，模型却把它们当成事实断言。带着引用的陈旧结论，反而显得**更**权威，而不是更不可靠。
 
-The index has two hard caps:
+解决方案不是过期删除。旧记忆并不会被删掉 -- 它们可能包含能用很多年的制度性知识。系统做的是加年龄警告：
 
-The index has two hard caps: 200 lines and 25,000 bytes.
+陈旧性函数会计算记忆的年龄（天）。今天或昨天的记忆不会显示警告（函数返回空字符串）。更早的记忆会在内容旁边插入一个 caveat：消息会说明它已经存在多少天，并提醒代码行为断言或 file:line 引用可能已经过时，需要对照当前代码重新核实。
 
-The 200-line cap catches normal growth. The 25KB byte cap catches an observed failure mode: users packing long lines that stay under 200 lines but consume enormous token budgets. At the 97th percentile, a MEMORY.md with only 197 lines weighed 197KB. When either cap fires, actionable guidance tells the user what to fix: "Keep index entries to one line under ~200 chars; move detail into topic files."
+今天或昨天的记忆不会有警告；更早的记忆则会附带陈旧性提示。使用“today”“yesterday”“47 days ago”这种人类可读格式，是因为模型不擅长日期运算。原始 ISO 时间戳并不会像“47 days ago”那样触发陈旧性推理。这个判断是通过 eval 证实的：动作提示式的“Before recommending from memory” 得分 3/3，而更抽象的 “Trusting what you recall” 在正文相同的情况下得分 0/3。
 
-This two-tier architecture -- lightweight always-on index plus heavy on-demand content -- is the design that allows memory to scale. A project with 150 memories has a 150-line index consuming perhaps 3,000 tokens, not 150 full files consuming 100,000.
-
----
-
-The transition from individual memory to shared knowledge is natural. A testing policy, a deployment convention, a known gotcha in the build system -- these need to be shared across a team.
-
-## Team Memory
-
-Team memory is a subdirectory of the auto-memory directory at `<autoMemPath>/team/`, gated behind a feature flag and requiring auto-memory to be enabled. The architectural nesting is deliberate: disabling auto-memory transitively disables team memory.
-
-### Defense in Depth
-
-Team memory introduces an attack surface that individual memory does not have. Team-synced files come from other users, and a malicious teammate could attempt path traversal. The security model uses three layers of defense.
-
-**Layer 1: Input sanitization.** The `sanitizePathKey()` function validates against null bytes, URL-encoded traversals (`%2e%2e%2f`), Unicode normalization attacks (fullwidth characters that normalize to `../`), backslashes, and absolute paths.
-
-**Layer 2: String-level path validation.** After sanitization, `path.resolve()` normalizes remaining `..` segments, and the resolved path is checked against the team directory prefix (including a trailing separator to prevent `team-evil/` from matching `team/`).
-
-**Layer 3: Symlink resolution.** `realpathDeepestExisting()` resolves symlinks on the deepest existing ancestor, catching attacks that string-level validation cannot detect. If `team/evil` is a symlink pointing to `/etc/`, string validation sees a valid prefix, but `realpath` reveals the true target.
-
-All validation failures produce a `PathTraversalError`. No partial successes, no fallbacks. Fail closed.
-
-### Scope Guidance
-
-The prompt teaches the model about private vs. shared memory. User memories are always private. Reference memories are usually team. Feedback memories default to private unless they represent project-wide conventions. The cross-checking instruction -- "Before saving a private feedback memory, check that it does not contradict a team feedback memory" -- prevents conflicting guidance from surfacing unpredictably depending on which memory is recalled first.
+这里存在一个值得点明的哲学张力。陈旧性系统把记忆当作假设，而不是事实。但模型天然会倾向于自信地陈述信息。陈旧性警告其实是在对抗模型自己的语气 -- 用它服从指令的能力，去覆盖它生成置信度的倾向。
 
 ---
 
-## KAIROS Mode: Append-Only Daily Logs
+## 作为始终加载索引的 MEMORY.md
 
-Standard memory assumes discrete sessions. KAIROS mode (Claude Code's assistant mode) breaks this assumption -- sessions are long-lived, potentially running for days. The two-step write pattern does not scale to continuous operation.
+每次对话都会从上下文里带上 `MEMORY.md`。它不是一条记忆 -- 它是索引，是实际记忆文件的目录。
 
-The solution is architectural separation between capture and consolidation:
+这个索引有两个硬上限：
+
+索引有两个硬上限：200 行和 25,000 字节。
+
+200 行上限可以拦住普通增长。25KB 字节上限则可以拦住一个观察到的失败模式：用户塞进了很长的行数，虽然行数没超过 200，但 token 预算被吃得很厉害。在第 97 个百分位，某个只有 197 行的 `MEMORY.md` 竟然重达 197KB。任一上限触发时，系统都会给出可操作的指导：“把索引项控制在每行约 200 字符以内；把细节移到主题文件里。”
+
+这种双层架构 -- 轻量的始终在线索引 + 重量级的按需内容 -- 才是记忆能够扩展的关键。一个有 150 条记忆的项目，索引可能只占 150 行、约 3,000 个 token，而不是 150 个完整文件、10 万个 token。
+
+---
+
+从单条记忆走向共享知识的过渡是自然的。测试策略、部署约定、构建系统里的已知坑 -- 这些都需要在团队中共享。
+
+## 团队记忆
+
+团队记忆是自动记忆目录下 `<autoMemPath>/team/` 的一个子目录，它受特性开关控制，并且要求启用 auto-memory。这样的嵌套结构是有意设计的：关闭 auto-memory 会连带关闭团队记忆。
+
+### 深度防御
+
+团队记忆引入了个人记忆没有的攻击面。团队同步文件来自其他用户，而恶意队友可能会尝试路径穿越。安全模型使用三层防御。
+
+**第 1 层：输入净化。** `sanitizePathKey()` 会校验空字节、URL 编码的穿越（`%2e%2e%2f`）、Unicode 规范化攻击（全角字符归一化后变成 `../`）、反斜杠以及绝对路径。
+
+**第 2 层：字符串级路径校验。** 净化后，`path.resolve()` 会规范化剩余的 `..` 段，然后把解析后的路径和 team 目录前缀进行比较（前缀里要带上尾部分隔符，防止 `team-evil/` 误匹配成 `team/`）。
+
+**第 3 层：符号链接解析。** `realpathDeepestExisting()` 会在最深的已存在祖先节点上解析符号链接，捕捉字符串级校验看不出来的攻击。如果 `team/evil` 是一个指向 `/etc/` 的 symlink，字符串校验会看到一个合法前缀，但 `realpath` 会暴露真实目标。
+
+所有校验失败都会抛出 `PathTraversalError`。没有部分成功，没有 fallback。失败即关闭。
+
+### 作用域指导
+
+prompt 会教模型区分私有记忆和共享记忆。user memories 永远是私有的。reference memories 通常属于团队。feedback memories 默认是私有的，除非它们代表的是项目级约定。交叉检查指令 -- “在保存私有 feedback memory 之前，先检查它是否和 team feedback memory 冲突” -- 可以防止冲突性的指导因为回忆顺序不同而随机浮现。
+
+---
+
+## KAIROS 模式：只追加的每日日志
+
+标准记忆默认的是离散会话。KAIROS 模式（Claude Code 的 assistant mode）打破了这个假设 -- 会话是长生命周期的，可能持续数天。两步写入模式不适合连续运行。
+
+解决方案是把捕获和归并在架构上分开：
 
 ```mermaid
 graph LR
-    subgraph "Standard Write Path"
+    subgraph "标准写入路径"
         A1[Model observes] --> A2[Create memory file] --> A3[Update MEMORY.md index]
     end
 
-    subgraph "KAIROS Mode"
+    subgraph "KAIROS 模式"
         B1[Model observes] --> B2[Append timestamped bullet<br/>to daily log file]
         B3[/dream consolidation/] --> B4[Read recent logs] --> B5[Merge into structured memories] --> B6[Update MEMORY.md index]
     end
@@ -257,64 +255,64 @@ graph LR
     style B3 fill:#fff9c4
 ```
 
-In KAIROS mode, the model appends to date-named log files (`<autoMemPath>/logs/YYYY/MM/YYYY-MM-DD.md`). Each entry is a short timestamped bullet. The model is instructed: "Do not rewrite or reorganize the log" -- restructuring during capture loses the chronological signal that consolidation needs.
+在 KAIROS 模式下，模型会把内容追加到按日期命名的日志文件里（`<autoMemPath>/logs/YYYY/MM/YYYY-MM-DD.md`）。每条记录都是一条简短的、带时间戳的 bullet。模型会被要求：“不要重写或重组日志” -- 在捕获阶段做重构会丢掉 consolidation 需要的时间顺序信号。
 
-The path in the prompt is described as a *pattern* rather than today's literal date. This is a caching optimization: the memory prompt is cached and not invalidated when the date changes at midnight. The model derives the current date from a separate `date_change` attachment.
+日志的路径在 prompt 里被描述成一个 *pattern*，而不是今天的字面日期。这是一个缓存优化：记忆 prompt 会被缓存，而不会在午夜日期变化时失效。模型会通过单独的 `date_change` 附件来推导当前日期。
 
-### The /dream Consolidation
+### /dream 归并
 
-Consolidation runs in four phases: **Orient** (list directory, read index, skim existing files), **Gather** (search logs, check for drifted memories), **Consolidate** (write or update files, merge rather than duplicate), **Prune** (update index under 200 lines, remove stale pointers). The emphasis on merging into existing files rather than creating new ones is important -- without it, the memory directory would grow linearly with usage.
+归并分四个阶段：**Orient**（列目录、读索引、扫一遍已有文件）、**Gather**（搜索日志、检查漂移的记忆）、**Consolidate**（写入或更新文件，合并而不是复制）、**Prune**（把索引控制在 200 行以内，删除过时指针）。强调“合并到已有文件，而不是新建文件”很重要 -- 不然记忆目录会随着使用量线性膨胀。
 
-### The Consolidation Lock
+### 归并锁
 
-The lock file `.consolidate-lock` serves dual purpose: its content is the holder's PID (mutual exclusion), its mtime *is* `lastConsolidatedAt` (scheduling state). The auto-dream fires when three gates pass, evaluated cheapest-first: hours since last consolidation exceeds 24, sessions modified since then exceeds 5, and no other process holds the lock. Crash recovery detects dead PIDs via `process.kill(pid, 0)`, with a one-hour staleness timeout as defense against PID reuse.
-
----
-
-## Background Extraction
-
-The main agent has full instructions for writing memories proactively. But agents are imperfect -- and the imperfection is predictable. When a user says "remember to always use integration tests" and then immediately asks "now fix the login bug," the model's attention shifts entirely to the bug. The memory-saving instruction was processed but may not execute.
-
-At the end of each complete query loop, a forked agent -- sharing the parent's prompt cache -- analyzes recent messages and writes any memories the main agent missed. When the main agent has already written memories in the current turn range, the extraction agent skips that range. The extraction agent has a constrained tool budget: read-only tools plus write access only to memory directory paths. Its prompt instructs a two-turn strategy: turn 1 reads in parallel, turn 2 writes in parallel.
-
-The interaction is cooperative, not competitive. The main agent's prompt always contains the full save instructions. When the main agent saves, the background agent defers. When it does not, the background agent catches the gap. This pattern -- a primary path with a background safety net -- makes memory capture more reliable without burdening the primary interaction. Neither alone would be sufficient.
+锁文件 `.consolidate-lock` 有两个用途：它的内容是持有者的 PID（互斥），它的 mtime *就是* `lastConsolidatedAt`（调度状态）。当三个门禁都通过时，auto-dream 会触发，而且按从便宜到昂贵的顺序评估：距离上次归并超过 24 小时、距上次以来被修改的会话数超过 5、没有其他进程持有锁。崩溃恢复会通过 `process.kill(pid, 0)` 检测死 PID，并用一小时的陈旧超时来防止 PID 重用。
 
 ---
 
-## Path Resolution and Security
+## 背景提取
 
-The auto-memory path is resolved through a priority chain:
+主 agent 已经有完整指令，会主动写记忆。但 agent 终归会出错，而这种出错是可预期的。当用户说“记住，永远用集成测试”，然后立刻又问“现在修复登录 bug”时，模型注意力会完全转向 bug。保存记忆的指令虽然已经被处理，但可能没有真正执行。
 
-1. **`CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`** -- Full-path override for Cowork.
-2. **`autoMemoryDirectory` in settings.json** -- Only trusted settings sources. Project settings are intentionally excluded.
-3. **Default computed path** -- `~/.claude/projects/<sanitized-git-root>/memory/`.
+每个完整 query loop 结束时，都会有一个 fork 出来的 agent -- 和父级共享 prompt cache -- 分析最近消息，并补写主 agent 漏掉的记忆。当主 agent 已经在当前 turn 范围内写过记忆时，提取 agent 会跳过这段范围。提取 agent 的工具预算是受限的：只允许读工具，以及对 memory 目录路径的写访问。它的 prompt 指示采用两轮策略：第一轮并行读取，第二轮并行写入。
 
-The exclusion of project settings is a security decision. A malicious repository could commit `.claude/settings.json` with `autoMemoryDirectory: "~/.ssh"`, and the permission carve-out for memory files would grant the model automatic write access to SSH keys. By limiting the override to policy, flag, local, and user settings -- none committable to a repository -- this attack vector is closed.
-
-The `isAutoMemPath()` function normalizes paths before prefix-checking to prevent traversal, and the trailing separator convention ensures prefix matching requires a directory boundary.
-
-### The Enable/Disable Chain
-
-Whether auto-memory is active is determined by `isAutoMemoryEnabled()`, implementing its own priority chain: environment variable, bare mode, CCR without persistent storage, settings, default enabled. When disabled, both the prompt section is dropped (so the model receives no memory instructions) and the background processes stop (extract-memories, auto-dream, team sync). Both gates must align -- removing the prompt alone would not stop the extraction agent, which has its own prompt.
+这个交互是协作性的，不是竞争性的。主 agent 的 prompt 始终包含完整的保存指令。主 agent 去保存时，后台 agent 就让开；主 agent 没有保存时，后台 agent 补上这个缺口。这个模式 -- 主路径加一个后台安全网 -- 让记忆捕获更可靠，同时又不会拖累主交互。两者单独看都不够。
 
 ---
 
-## Apply This: Designing Agent Memory
+## 路径解析与安全
 
-The memory system's complexity is in the behavioral layer -- prompt instructions, LLM-powered recall, staleness management, background extraction -- not in storage infrastructure. This distribution of complexity is itself a design principle.
+自动记忆路径通过一个优先级链来解析：
 
-**Files beat databases for agent memory.** Files are inspectable, editable, and version-controllable. Transparency builds trust. When the alternative is a database users cannot easily read, files win on trust alone.
+1. **`CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`** -- 给 Cowork 用的完整路径覆盖。
+2. **`settings.json` 里的 `autoMemoryDirectory`** -- 只接受受信任的 settings 来源。项目 settings 被故意排除。
+3. **默认计算路径** -- `~/.claude/projects/<sanitized-git-root>/memory/`。
 
-**Constrain what gets saved, not just how.** The derivability test -- can this knowledge be re-derived from the current project state? -- eliminates the majority of potential memories while preserving the ones that actually matter.
+之所以排除项目 settings，是出于安全考虑。恶意仓库可以提交 `.claude/settings.json`，把 `autoMemoryDirectory` 设成 `"~/.ssh"`，而 memory 文件的写入权限又会让模型自动获得对 SSH key 的写权限。通过把覆盖入口限制在 policy、flag、local 和 user settings -- 这些都不能提交进仓库 -- 这个攻击面就被关上了。
 
-**Use an LLM for recall, not keywords or embeddings.** An LLM side-query understands context, reasons about what is already available in conversation, handles negation, and requires no index maintenance. The latency cost is real but bounded and hidden behind the main model's processing.
+`isAutoMemPath()` 会在做前缀比较前先规范化路径，以防止穿越；尾部分隔符约定则确保前缀匹配必须落在目录边界上。
 
-**Warn about staleness, do not expire.** Institutional knowledge may remain valid for years. Attaching age warnings lets the model treat old memories as hypotheses rather than facts. The human-readable age format triggers the right reasoning in a way that raw timestamps do not.
+### 启用 / 禁用链
 
-**Build a safety net for capture.** The main agent will miss memories. A background extraction agent that reviews recent conversation makes the system more reliable without burdening the primary interaction. When the main agent saves, the background agent defers.
+auto-memory 是否启用由 `isAutoMemoryEnabled()` 决定，它有自己的一条优先级链：环境变量、bare mode、CCR without persistent storage、settings、默认启用。禁用时，prompt 片段会被移除（因此模型收不到任何记忆指令），后台进程也会停止（extract-memories、auto-dream、team sync）。这两个门禁必须同时生效 -- 只移除 prompt 并不能阻止提取 agent，因为它有自己的 prompt。
 
 ---
 
-The agent can now learn across sessions -- accumulating knowledge about its user, their preferences, their project's state, and the corrections they have made. The memory system makes a philosophical commitment: that an agent's relationship with its user should deepen over time, not reset on every interaction. The file-based implementation makes that commitment tangible -- visible on disk, editable by humans, version-controlled alongside code. The agent's memory is not a black box. It is a collection of notes in a folder, written in a language that both the model and the human can read.
+## 应用：设计 agent 记忆
 
-The next chapter examines how Claude Code extends its capabilities beyond the core: the skills system that teaches the model new behaviors, and the hooks system that lets external code constrain and modify those behaviors at over two dozen lifecycle points.
+记忆系统的复杂性主要在行为层 -- prompt 指令、LLM 驱动的回忆、陈旧性管理、后台提取 -- 而不在存储基础设施上。复杂性分布本身就是一种设计原则。
+
+**文件比数据库更适合 agent 记忆。** 文件可检查、可编辑、可版本控制。透明性建立信任。当备选方案是用户很难直接读取的数据库时，文件仅凭信任就已经赢了。
+
+**限制保存什么，而不仅仅是怎么保存。** 可推导性测试 -- 这条知识能否从当前项目状态重新推导出来？ -- 可以删掉大多数潜在记忆，同时保留下真正重要的那些。
+
+**回忆时用 LLM，不要用关键词或 embeddings。** LLM side-query 能理解上下文，知道对话里已经有哪些信息，能处理否定，而且不需要维护索引。延迟是真实存在的，但它是有界的，而且被主模型处理过程掩盖掉了。
+
+**警告陈旧，不要过期删除。** 制度性知识可能有效很多年。加年龄警告可以让模型把旧记忆当作假设而不是事实。人类可读的年龄格式能以原始时间戳做不到的方式触发正确推理。
+
+**给捕获过程建立安全网。** 主 agent 会漏记忆。一个回看最近对话的后台提取 agent，可以在不拖累主交互的前提下提高系统可靠性。主 agent 保存时，后台 agent 就让开。
+
+---
+
+现在，agent 已经能够跨会话学习了 -- 它会积累关于用户、偏好、项目状态以及用户纠正过的内容的知识。这个记忆系统做出了一种哲学承诺：agent 和用户的关系应该随着时间加深，而不是每次交互都重置。基于文件的实现让这个承诺变得具体可见 -- 它在磁盘上可见、可被人类编辑、可和代码一起版本控制。agent 的记忆不是黑盒，而是放在文件夹里的笔记，写的是模型和人都能读的语言。
+
+下一章会考察 Claude Code 如何把能力扩展到核心之外：教模型新行为的 skills 系统，以及让外部代码在二十多个生命周期点上约束和修改这些行为的 hooks 系统。

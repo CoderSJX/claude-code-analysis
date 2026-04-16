@@ -9,8 +9,8 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 ---
 
 <BaseLayout
-  title="Claude Code from Source — Architecture, Patterns & Internals"
-  description="A technical book analyzing the architecture of Anthropic's AI coding agent. 18 chapters, 400 pages, reverse-engineered from source maps. No source code — only transferable patterns."
+  title="Claude Code from Source - 架构、模式与内部实现"
+  description="一本解析 Anthropic AI 编码智能体架构的技术书。18 章、400 页，基于 source map 逆向整理。不含源代码，只保留可迁移的模式。"
 >
   <Header />
 
@@ -20,21 +20,21 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <div class="text-center mb-20">
       <img
         src={`${base}cover.jpg`}
-        alt="Claude Code from Source — Book Cover"
+        alt="Claude Code from Source - 书封"
         class="mx-auto w-64 md:w-72 rounded-lg shadow-lg mb-10"
       />
       <h1 class="text-3xl md:text-4xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-6 leading-tight">
-        How Anthropic built the most widely used<br class="hidden md:inline" /> AI coding agent
+        Anthropic 是如何打造出最广泛使用的<br class="hidden md:inline" /> AI 编码智能体的
       </h1>
       <p class="text-lg text-[var(--color-secondary)] dark:text-[var(--color-muted)] max-w-2xl mx-auto leading-relaxed mb-6">
-        When Claude Code shipped on npm, the source maps came with it. We read every file. This book distills the architecture, design decisions, and transferable patterns into
-        <span class="text-[var(--color-terracotta)] font-medium">18 chapters</span> you can learn from and apply to your own systems.
+        Claude Code 发布到 npm 时，也一并带上了 source map。我们逐个阅读了所有文件。这本书把架构、设计决策和可迁移模式提炼成
+        <span class="text-[var(--color-terracotta)] font-medium">18 章</span>，供你学习并应用到自己的系统中。
       </p>
       <a
         href={`${base}${chapters[0].slug}/`}
         class="inline-flex items-center gap-2 px-6 py-3 bg-[var(--color-terracotta)] text-white font-medium rounded-lg hover:opacity-90 transition-opacity"
       >
-        Start reading
+        开始阅读
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
         </svg>
@@ -44,16 +44,16 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- What You'll Learn -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-8">
-        What you'll learn
+        你将学到什么
       </h2>
       <div class="grid md:grid-cols-2 gap-6">
         {[
-          { title: 'The agent loop', text: 'How an async generator drives the entire system — streaming model output, executing tools, recovering from errors, and compressing context across 4 layers.' },
-          { title: 'Tool execution at scale', text: 'A 14-step pipeline from model request to tool result. Permission resolution, speculative execution, concurrent batching by safety classification.' },
-          { title: 'Multi-agent orchestration', text: 'How sub-agents share prompt cache prefixes to cut costs by 95%. Fork agents, coordinator mode, swarm teams with mailbox messaging.' },
-          { title: 'Memory without a database', text: 'File-based memory with an LLM-powered recall system. Four memory types, staleness warnings, and a Sonnet side-query that beats embedding search.' },
-          { title: 'Performance engineering', text: 'Startup in 240ms via parallel I/O. Slot reservation saving context in 99% of requests. Bitmap pre-filters for fuzzy search. Every millisecond accounted for.' },
-          { title: 'Extensibility and security', text: 'Two-phase skill loading (metadata at startup, content on demand). 27 lifecycle hooks with config snapshots frozen at startup to prevent injection.' },
+          { title: '智能体循环', text: '一个 async generator 驱动整个系统 - 流式输出模型结果、执行工具、从错误中恢复，并通过 4 层压缩上下文。' },
+          { title: '大规模工具执行', text: '从模型请求到工具结果的 14 步流水线。包括权限判定、投机执行，以及按安全级别并发批处理。' },
+          { title: '多智能体编排', text: '子智能体如何共享提示缓存前缀，把成本降低 95%。包括 Fork 智能体、协调者模式、带邮箱消息的蜂群团队。' },
+          { title: '没有数据库的记忆', text: '基于文件的记忆系统，结合 LLM 召回。4 类记忆、陈旧性提示，以及比 embedding 搜索更强的 Sonnet 侧查询。' },
+          { title: '性能工程', text: '通过并行 I/O 实现 240ms 启动。Slot 预留让 99% 的请求都能节省上下文。用于模糊搜索的位图预过滤。每一毫秒都被计算。' },
+          { title: '可扩展性与安全', text: '两阶段技能加载（启动时读元数据，按需读内容）。27 个生命周期 Hooks，在启动时冻结配置快照，防止注入。' },
         ].map(({ title, text }) => (
           <div class="p-5 rounded-lg border border-[var(--color-border)] dark:border-[#333]">
             <h3 class="font-semibold text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-2">{title}</h3>
@@ -66,10 +66,10 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- Architecture Explorer -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-3">
-        Explore the architecture
+        探索架构
       </h2>
       <p class="text-sm text-[var(--color-muted)] mb-6">
-        Six core abstractions power Claude Code. Drag nodes to rearrange, hover for details, click to read the chapter.
+        6 个核心抽象驱动着 Claude Code。你可以拖动节点重新排列，悬停查看详情，点击跳转到对应章节。
       </p>
       <ArchitectureExplorer client:only="react" className="w-full" />
     </section>
@@ -77,26 +77,26 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- Who This Is For -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-6">
-        Who this is for
+        适合谁看
       </h2>
       <div class="space-y-4 text-[var(--color-secondary)] dark:text-[var(--color-muted)]">
-        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">Engineers building agentic systems.</strong> Every chapter ends with "Apply This" — 5 transferable patterns with concrete adaptation advice. Steal the architecture, skip the mistakes.</p>
-        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">Technical leaders evaluating architectures.</strong> Follow the narrative without reading every code block. Understand why decisions were made, not just what was built.</p>
-        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">Anyone curious about how production AI tools work.</strong> Claude Code is used by hundreds of thousands of developers. This is how it works under the hood.</p>
+        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">正在构建 agent 系统的工程师。</strong> 每章末尾都有“应用到实践” - 5 个可迁移模式和具体改造建议。直接借鉴架构，跳过踩坑。</p>
+        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">评估架构的技术负责人。</strong> 即使不看每个代码块，也能跟着叙述理解这些决策为什么这么做，而不只是做了什么。</p>
+        <p><strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">对生产级 AI 工具如何工作的任何好奇者。</strong> Claude Code 被几十万开发者使用。这就是它在底层如何运作的。</p>
       </div>
     </section>
 
     <!-- Table of Contents -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-8">
-        Table of contents
+        目录
       </h2>
       {parts.map((part) => {
         const partChapters = chapters.filter(c => part.chapters.includes(c.number));
         return (
           <div class="mb-10">
             <div class="flex items-baseline gap-3 mb-1">
-              <span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-terracotta)]">Part {part.number}</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-terracotta)]">第 {part.number} 部分</span>
               <h3 class="text-lg font-bold text-[var(--color-charcoal)] dark:text-[var(--color-cream)] font-[var(--font-serif)]">{part.title}</h3>
             </div>
             <p class="text-sm italic text-[var(--color-muted)] mb-4">{part.epigraph}</p>
@@ -125,21 +125,21 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- How This Was Made -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-6">
-        How this book was made
+        本书如何制作
       </h2>
       <div class="space-y-4 text-[var(--color-secondary)] dark:text-[var(--color-muted)] leading-relaxed">
         <p>
-          The source was extracted from npm source maps — the <code>.js.map</code> files that shipped with Claude Code contained a <code>sourcesContent</code> field with the full original TypeScript. Nearly two thousand files comprising the complete architecture.
+          源码是从 npm source map 中提取出来的 - Claude Code 随包发布的 <code>.js.map</code> 文件里包含了 <code>sourcesContent</code> 字段，保存着完整的原始 TypeScript。几乎两千个文件构成了完整架构。
         </p>
         <p>
-          <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">36 AI agents</strong> analyzed and wrote the entire book in four phases:
+          <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">36 个 AI 智能体</strong> 分四个阶段完成了整本书的分析与撰写：
         </p>
         <div class="grid sm:grid-cols-2 gap-4 my-6">
           {[
-            { phase: 'Exploration', detail: '6 parallel agents read every file in the source tree' },
-            { phase: 'Analysis', detail: '12 agents wrote 494KB of raw technical documentation' },
-            { phase: 'Writing', detail: '15 agents rewrote everything from scratch as narrative chapters' },
-            { phase: 'Review & Revision', detail: '3 reviewers produced 900 lines of feedback; 3 agents applied all fixes' },
+            { phase: '探索', detail: '6 个并行智能体阅读了源码树中的每个文件' },
+            { phase: '分析', detail: '12 个智能体写出了 494KB 的原始技术文档' },
+            { phase: '写作', detail: '15 个智能体将一切从零重写为叙事章节' },
+            { phase: '审阅与修订', detail: '3 位审阅者给出 900 行反馈；3 个智能体完成全部修复' },
           ].map(({ phase, detail }) => (
             <div class="flex gap-3 items-start p-4 rounded-lg bg-[var(--color-beige)]/50 dark:bg-[var(--color-dark-surface)]/50">
               <span class="text-[var(--color-terracotta)] font-semibold text-sm shrink-0">{phase}</span>
@@ -148,7 +148,7 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
           ))}
         </div>
         <p>
-          The entire process — from source extraction to final revised book — took approximately <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">6 hours</strong>. A final audit pass ensured no verbatim source code remained — every code block was rewritten as pseudocode with different variable names.
+          从源码提取到最终修订完成，整个过程大约用了 <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">6 小时</strong>。最后的审计确保没有逐字保留任何源码 - 每个代码块都被改写成了使用不同变量名的伪代码。
         </p>
       </div>
     </section>
@@ -156,21 +156,21 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- 10 Patterns -->
     <section class="mb-20">
       <h2 class="text-2xl font-bold font-[var(--font-serif)] text-[var(--color-charcoal)] dark:text-[var(--color-cream)] mb-3">
-        The 10 patterns that make it work
+        让它运转起来的 10 个模式
       </h2>
-      <p class="text-[var(--color-muted)] mb-6">If you read nothing else, these are the architectural bets that define Claude Code.</p>
+      <p class="text-[var(--color-muted)] mb-6">如果你只读这一段，也足够理解定义 Claude Code 的那些架构取舍了。</p>
       <div class="space-y-4">
         {[
-          { name: 'AsyncGenerator as agent loop', desc: 'yields Messages, typed Terminal return, natural backpressure and cancellation' },
-          { name: 'Speculative tool execution', desc: 'start read-only tools during model streaming, before the response completes' },
-          { name: 'Concurrent-safe batching', desc: 'partition tools by safety, run reads in parallel, serialize writes' },
-          { name: 'Fork agents for cache sharing', desc: 'parallel children share byte-identical prompt prefixes, saving ~95% input tokens' },
-          { name: '4-layer context compression', desc: 'snip, microcompact, collapse, autocompact — each lighter than the next' },
-          { name: 'File-based memory with LLM recall', desc: 'Sonnet side-query selects relevant memories, not keyword matching' },
-          { name: 'Two-phase skill loading', desc: 'frontmatter only at startup, full content on invocation' },
-          { name: 'Sticky latches for cache stability', desc: 'once a beta header is sent, never unset mid-session' },
-          { name: 'Slot reservation', desc: '8K default output cap, escalate to 64K on hit (saves context in 99% of requests)' },
-          { name: 'Hook config snapshot', desc: 'freeze at startup to prevent runtime injection attacks' },
+          { name: '将 AsyncGenerator 用作智能体循环', desc: '返回 Messages，Terminal 有类型返回值，自然支持背压和取消' },
+          { name: '投机式工具执行', desc: '在模型流式输出期间就启动只读工具，等响应完成前先跑起来' },
+          { name: '并发安全批处理', desc: '按安全性分组工具，只读并行、写入串行' },
+          { name: '用 Fork 智能体共享缓存', desc: '并行子任务共享字节完全一致的提示前缀，节省约 95% 输入 Token' },
+          { name: '4 层上下文压缩', desc: 'snip、microcompact、collapse、autocompact - 一层比一层轻' },
+          { name: '结合 LLM 召回的文件型记忆', desc: 'Sonnet 侧查询选择相关记忆，而不是关键词匹配' },
+          { name: '两阶段技能加载', desc: '启动时只读 frontmatter，调用时再加载完整内容' },
+          { name: '用于缓存稳定性的粘性锁存器', desc: '一旦发出 beta header，整个会话中都不会撤销' },
+          { name: 'Slot 预留', desc: '默认 8K 输出上限，命中后提升到 64K（99% 的请求都能省上下文）' },
+          { name: 'Hook 配置快照', desc: '在启动时冻结，防止运行时注入攻击' },
         ].map((p, i) => (
           <div class="flex gap-4 items-start">
             <span class="text-sm font-mono text-[var(--color-terracotta)] font-bold mt-1 w-6 shrink-0 text-right">{i + 1}</span>
@@ -186,15 +186,15 @@ const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
     <!-- Disclaimer -->
     <section class="mb-12 p-6 rounded-lg border border-[var(--color-border)] dark:border-[#333] bg-[var(--color-beige)]/50 dark:bg-[var(--color-dark-surface)]/50">
       <p class="text-sm text-[var(--color-secondary)] dark:text-[var(--color-muted)] leading-relaxed">
-        <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">Purely educational.</strong> This book contains no source code from Claude Code — every code block is original pseudocode written to illustrate architectural patterns. The goal is to help engineers understand how production AI agents are built, not to reproduce proprietary software. The "NO'REILLY" cover is a parody/meme for illustrative purposes only — no affiliation with O'Reilly Media.
+        <strong class="text-[var(--color-charcoal)] dark:text-[var(--color-cream)]">纯属教学用途。</strong> 本书不包含 Claude Code 的任何源码 - 每个代码块都是原创伪代码，用来说明架构模式。目标是帮助工程师理解生产级 AI 智能体如何构建，而不是复现专有软件。“NO'REILLY”封面只是用于说明的戏仿/梗图，与 O'Reilly Media 没有任何关联。
       </p>
     </section>
 
     <!-- Footer -->
     <footer class="text-center text-sm text-[var(--color-muted)] border-t border-[var(--color-border)] dark:border-[#333] pt-8 pb-12">
       <p>
-        An independent educational analysis. Not affiliated with, endorsed by, or sponsored by
-        <a href="https://anthropic.com" class="text-[var(--color-terracotta)] hover:underline">Anthropic</a>.
+        独立的教育性分析，与
+        <a href="https://anthropic.com" class="text-[var(--color-terracotta)] hover:underline">Anthropic</a> 无关，也未获其认可或赞助。
       </p>
       <p class="mt-2">
         <a href="https://github.com/alejandrobalderas/claude-code-from-source" class="text-[var(--color-terracotta)] hover:underline">GitHub</a>

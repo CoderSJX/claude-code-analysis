@@ -38,7 +38,7 @@ const hookRejectionMsg =
 const pipelineSteps: PipelineStep[] = [
   {
     id: 1,
-    name: "Tool Lookup",
+    name: "工具查找",
     description: "Find the tool by name in the registry",
     detail: (tool) => `Found: ${tool}Tool`,
     canFail: false,
@@ -46,7 +46,7 @@ const pipelineSteps: PipelineStep[] = [
   },
   {
     id: 2,
-    name: "Abort Check",
+    name: "中止检查",
     description: "Verify the request hasn't been cancelled",
     detail: () => "Request active",
     canFail: false,
@@ -54,7 +54,7 @@ const pipelineSteps: PipelineStep[] = [
   },
   {
     id: 3,
-    name: "Zod Validation",
+    name: "Zod 校验",
     description: "Validate input against the tool's schema",
     detail: () => "Schema valid",
     canFail: true,
@@ -109,7 +109,7 @@ const pipelineSteps: PipelineStep[] = [
   },
   {
     id: 9,
-    name: "Permission Denied",
+    name: "权限被拒绝",
     description: "Handle denial (prompt user or fail)",
     detail: () => "Skipped (permission granted)",
     canFail: false,
@@ -132,7 +132,7 @@ const pipelineSteps: PipelineStep[] = [
   },
   {
     id: 11,
-    name: "Result Mapping",
+    name: "结果映射",
     description: "Transform raw output into a tool_result message",
     detail: () => "Mapped to ContentBlock[]",
     canFail: false,

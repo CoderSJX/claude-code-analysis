@@ -46,7 +46,7 @@ interface ErrorType {
 const errorTypes: ErrorType[] = [
   {
     id: "prompt-too-long",
-    title: "Prompt Too Long",
+    title: "提示过长",
     code: "413",
     icon: "\u26A0",
     steps: [
@@ -71,7 +71,7 @@ const errorTypes: ErrorType[] = [
       },
       {
         id: 3,
-        label: "Surface Error & Exit",
+        label: "直接报错并退出",
         description:
           "All recovery exhausted. The error is finally surfaced to the user and the loop terminates.",
         detail:
@@ -82,7 +82,7 @@ const errorTypes: ErrorType[] = [
   },
   {
     id: "max-output-tokens",
-    title: "Max Output Tokens",
+    title: "输出 Token 达到上限",
     code: "max_tokens",
     icon: "\u2702",
     steps: [
@@ -107,7 +107,7 @@ const errorTypes: ErrorType[] = [
       },
       {
         id: 3,
-        label: "Surface Error & Exit",
+        label: "直接报错并退出",
         description:
           "3 recovery attempts exhausted. The accumulated partial output is kept, but the loop exits.",
         detail:
@@ -134,7 +134,7 @@ const errorTypes: ErrorType[] = [
       },
       {
         id: 2,
-        label: "Surface Error & Exit",
+        label: "直接报错并退出",
         description:
           "Media removal did not resolve the issue. The error is surfaced to the user.",
         detail:

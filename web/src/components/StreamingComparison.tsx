@@ -15,17 +15,17 @@ interface TimelineBlock {
 // --- Data ---
 
 const sequentialBlocks: TimelineBlock[] = [
-  { label: "Model generates response", kind: "model", startTime: 0, endTime: 3 },
-  { label: "Tool 1: Read file", kind: "read", startTime: 3, endTime: 4.5 },
-  { label: "Tool 2: Read file", kind: "read", startTime: 4.5, endTime: 6 },
-  { label: "Tool 3: Write file", kind: "write", startTime: 6, endTime: 8 },
+  { label: "模型生成响应", kind: "model", startTime: 0, endTime: 3 },
+  { label: "工具 1：读取文件", kind: "read", startTime: 3, endTime: 4.5 },
+  { label: "工具 2：读取文件", kind: "read", startTime: 4.5, endTime: 6 },
+  { label: "工具 3：写入文件", kind: "write", startTime: 6, endTime: 8 },
 ];
 
 const streamingBlocks: TimelineBlock[] = [
-  { label: "Model streaming...", kind: "model", startTime: 0, endTime: 3 },
-  { label: "Tool 1: Read file (speculative)", kind: "read", startTime: 1, endTime: 2.5 },
-  { label: "Tool 2: Read file (speculative)", kind: "read", startTime: 2, endTime: 3.5 },
-  { label: "Tool 3: Write file", kind: "write", startTime: 3, endTime: 5 },
+  { label: "模型流式输出...", kind: "model", startTime: 0, endTime: 3 },
+  { label: "工具 1：读取文件（推测执行）", kind: "read", startTime: 1, endTime: 2.5 },
+  { label: "工具 2：读取文件（推测执行）", kind: "read", startTime: 2, endTime: 3.5 },
+  { label: "工具 3：写入文件", kind: "write", startTime: 3, endTime: 5 },
 ];
 
 const SEQUENTIAL_TOTAL = 8;
@@ -410,7 +410,7 @@ export default function StreamingComparison({ className }: Props) {
           }}
         >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
-          {isPlaying ? "Pause" : "Play"}
+          {isPlaying ? "暂停" : "播放"}
         </button>
 
         {/* Reset */}
@@ -431,13 +431,13 @@ export default function StreamingComparison({ className }: Props) {
           }}
         >
           <ResetIcon />
-          Reset
+          重置
         </button>
 
         {/* Speed control */}
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: 8 }}>
           <span style={{ fontSize: 12, color: colors.textSecondary, fontFamily: "var(--font-mono)" }}>
-            Speed:
+            速度：
           </span>
           {[1, 2].map((s) => (
             <button
@@ -475,8 +475,8 @@ export default function StreamingComparison({ className }: Props) {
 
       {/* Timelines side by side */}
       <div style={{ display: "flex", gap: 16 }}>
-        {renderTimeline(sequentialBlocks, "Sequential", SEQUENTIAL_TOTAL)}
-        {renderTimeline(streamingBlocks, "Streaming (Speculative)", STREAMING_TOTAL)}
+        {renderTimeline(sequentialBlocks, "顺序执行", SEQUENTIAL_TOTAL)}
+        {renderTimeline(streamingBlocks, "流式执行（推测）", STREAMING_TOTAL)}
       </div>
 
       {/* Legend */}
@@ -493,9 +493,9 @@ export default function StreamingComparison({ className }: Props) {
         }}
       >
         {[
-          { label: "Model streaming", color: "#d97757" },
-          { label: "Read-only tool", color: "#87867f" },
-          { label: "Write tool", color: isDark ? "#d4a24e" : "#c4922e" },
+          { label: "模型流式输出", color: "#d97757" },
+          { label: "只读工具", color: "#87867f" },
+          { label: "写入工具", color: isDark ? "#d4a24e" : "#c4922e" },
         ].map((item) => (
           <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span
@@ -535,12 +535,12 @@ export default function StreamingComparison({ className }: Props) {
             }}
           >
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: colors.textSecondary }}>Sequential</div>
+              <div style={{ fontSize: 12, color: colors.textSecondary }}>顺序执行</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: colors.text }}>{SEQUENTIAL_TOTAL}s</div>
             </div>
-            <div style={{ fontSize: 20, color: colors.textSecondary }}>vs</div>
+            <div style={{ fontSize: 20, color: colors.textSecondary }}>对比</div>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: colors.textSecondary }}>Streaming</div>
+              <div style={{ fontSize: 12, color: colors.textSecondary }}>流式执行</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#d97757" }}>{STREAMING_TOTAL}s</div>
             </div>
             <div
@@ -553,7 +553,7 @@ export default function StreamingComparison({ className }: Props) {
                 fontWeight: 700,
               }}
             >
-              {(SEQUENTIAL_TOTAL / STREAMING_TOTAL).toFixed(1)}x faster
+              快 {((SEQUENTIAL_TOTAL / STREAMING_TOTAL)).toFixed(1)} 倍
             </div>
           </motion.div>
         )}

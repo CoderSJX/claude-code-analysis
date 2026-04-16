@@ -55,8 +55,8 @@ interface ChainStep {
 const chainSteps: ChainStep[] = [
   {
     number: 1,
-    title: "Authentication Required",
-    description: "Server rejects unauthenticated request",
+    title: "需要认证",
+    description: "服务器拒绝未认证请求",
     method: "ANY",
     url: "/tools/list",
     result: "401 Unauthorized",
@@ -65,8 +65,8 @@ const chainSteps: ChainStep[] = [
   },
   {
     number: 2,
-    title: "Resource Discovery",
-    description: "RFC 9728 probe for protected resource metadata",
+    title: "资源发现",
+    description: "通过 RFC 9728 探测受保护资源元数据",
     method: "GET",
     url: "/.well-known/oauth-protected-resource",
     result: '{ "authorization_servers": ["https://auth.example.com"] }',
@@ -75,16 +75,16 @@ const chainSteps: ChainStep[] = [
   },
   {
     number: 3,
-    title: "Extract Auth Server",
-    description: "Pick first authorization server from the list",
+    title: "提取认证服务器",
+    description: "从列表中选择第一个授权服务器",
     result: "authorization_servers[0]",
     accent: "#60a5fa",
     phase: "discovery",
   },
   {
     number: 4,
-    title: "Server Configuration",
-    description: "RFC 8414 OpenID discovery for endpoints",
+    title: "服务器配置",
+    description: "RFC 8414 OpenID 端点发现",
     method: "GET",
     url: "/.well-known/openid-configuration",
     result: '{ "token_endpoint", "authorization_endpoint", ... }',
@@ -93,16 +93,16 @@ const chainSteps: ChainStep[] = [
   },
   {
     number: 5,
-    title: "PKCE Challenge",
-    description: "Generate cryptographic code verifier and challenge",
+    title: "PKCE 挑战",
+    description: "生成加密 code verifier 和 challenge",
     result: "code_verifier = random(43) \u2192 code_challenge = SHA256(verifier)",
     accent: "#22c55e",
     phase: "exchange",
   },
   {
     number: 6,
-    title: "Authorization + Token Exchange",
-    description: "Redirect user to authorize, then exchange code for token",
+    title: "授权与 Token 交换",
+    description: "重定向用户完成授权，然后用 code 换取 token",
     method: "POST",
     url: "/oauth/token",
     result: '{ "access_token": "eyJ..." }',
@@ -114,9 +114,9 @@ const chainSteps: ChainStep[] = [
 // --- Phase labels ---
 
 const phaseLabels: Record<string, { label: string; color: string }> = {
-  discovery: { label: "Discovery", color: "#60a5fa" },
-  configuration: { label: "Configuration", color: "#c084fc" },
-  exchange: { label: "Token Exchange", color: "#22c55e" },
+  discovery: { label: "发现", color: "#60a5fa" },
+  configuration: { label: "配置", color: "#c084fc" },
+  exchange: { label: "Token 交换", color: "#22c55e" },
 };
 
 // --- Down Arrow ---

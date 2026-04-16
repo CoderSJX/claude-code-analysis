@@ -91,7 +91,7 @@ const topologies: Topology[] = [
   },
   {
     id: "direct",
-    title: "Direct Connect",
+    title: "直连模式",
     subtitle: "Peer-to-Peer",
     accent: "#4ade80",
     accentLight: "#4ade8033",
@@ -107,7 +107,7 @@ const topologies: Topology[] = [
   },
   {
     id: "upstream",
-    title: "Upstream Proxy",
+    title: "上游代理",
     subtitle: "Managed Infrastructure",
     accent: "#c084fc",
     accentLight: "#c084fc33",

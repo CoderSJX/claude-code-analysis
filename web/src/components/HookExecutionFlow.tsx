@@ -66,7 +66,7 @@ const nodes: FlowNode[] = [
   },
   {
     id: "trusted",
-    label: "Workspace trusted?",
+    label: "工作区可信么？",
     kind: "decision",
   },
   {
@@ -84,7 +84,7 @@ const nodes: FlowNode[] = [
   },
   {
     id: "run",
-    label: "Run matching hooks",
+    label: "运行匹配到的 Hook",
     kind: "action",
     detail: "Parallel execution with timeout",
   },

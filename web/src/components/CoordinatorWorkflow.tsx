@@ -31,30 +31,30 @@ interface Phase {
 
 const phases: Phase[] = [
   {
-    name: "Research",
-    description: "Understand the problem",
-    detail: "Dispatch parallel agents to explore codebase, read docs, analyze patterns",
+    name: "调研",
+    description: "理解问题",
+    detail: "派出并行智能体探索代码库、阅读文档、分析模式",
     icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
     color: "#60a5fa",
   },
   {
-    name: "Synthesis",
-    description: "Consolidate findings",
-    detail: "Coordinator reads all research, builds shared understanding, plans approach",
+    name: "综合",
+    description: "整合发现",
+    detail: "协调者阅读所有调研结果，建立共同理解，并规划方案",
     icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2",
     color: "#a78bfa",
   },
   {
-    name: "Implementation",
-    description: "Execute the plan",
-    detail: "Workers implement in parallel, coordinator monitors progress via scratchpad",
+    name: "实施",
+    description: "执行计划",
+    detail: "工作者并行实现，协调者通过 scratchpad 监控进度",
     icon: "M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4",
     color: "#d97757",
   },
   {
-    name: "Verification",
-    description: "Confirm correctness",
-    detail: "Run tests, check types, verify behavior matches requirements",
+    name: "验证",
+    description: "确认正确性",
+    detail: "运行测试、检查类型、验证行为是否符合需求",
     icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
     color: "#4ade80",
   },
@@ -242,7 +242,7 @@ export default function CoordinatorWorkflow({ className }: Props) {
           fontFamily: "var(--font-mono)",
         }}
       >
-        Coordinator thinks and plans -- workers touch code. &quot;Never delegate understanding.&quot;
+        协调者负责思考和规划 - 工作者负责动代码。“绝不把理解外包出去。”
       </motion.div>
     </div>
   );

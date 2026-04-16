@@ -1,22 +1,22 @@
-# Chapter 7: Concurrent Tool Execution
+# 第 7 章：并发工具执行
 
-## The Cost of Waiting
+## 等待的代价
 
-Chapter 6 traced the lifecycle of a single tool call -- from the raw `tool_use` block in the API response through input validation, permission checks, execution, and result formatting. That pipeline handles one tool. But the model rarely requests just one.
+第 6 章追踪了单次工具调用的生命周期，从 API 响应里的原始 `tool_use` 块，一路经过输入校验、权限检查、执行和结果格式化。那条管线处理的是一个工具。但模型很少只请求一个工具。
 
-A typical Claude Code interaction involves three to five tool calls per turn. "Read these two files, grep for this pattern, then edit this function." The model emits all of those in a single response. If each tool takes 200 milliseconds, running them sequentially costs a full second. If the Read and Grep calls are independent -- and they are -- running them in parallel cuts that to 200 milliseconds. Five-to-one improvement, free.
+Claude Code 的典型交互里，每一轮都会有三到五个工具调用。“读这两个文件，grep 这个模式，然后改这个函数。” 模型会在同一个响应里把这些调用一次性发出来。如果每个工具要 200 毫秒，顺序执行就会多出整整 1 秒。如果 `Read` 和 `Grep` 彼此独立，而它们通常就是独立的，那么并行执行就能把时间压缩到 200 毫秒。五倍提升，等于白捡。
 
-But not all tools are independent. An Edit that modifies `config.ts` cannot run concurrently with another Edit that modifies `config.ts`. A Bash command that creates a directory must complete before a Bash command that writes a file into that directory. Concurrency is not a global property of a tool. It is a property of a specific tool invocation with specific inputs.
+但并不是所有工具都彼此独立。修改 `config.ts` 的 `Edit` 不能和另一个也修改 `config.ts` 的 `Edit` 并发执行。创建目录的 Bash 命令，必须先于往这个目录里写文件的 Bash 命令完成。并发不是工具的全局属性，而是某个具体工具调用在具体输入下的属性。
 
-This is the insight that drives the entire concurrency system: **safety is per-call, not per-tool-type**. `Bash("ls -la")` is safe to parallelize. `Bash("rm -rf build/")` is not. The same tool, different inputs, different concurrency classification. The system must inspect the input before deciding.
+这就是整个并发系统的核心洞见：**安全性按调用计算，不按工具类型计算。** `Bash("ls -la")` 可以并行，`Bash("rm -rf build/")` 不行。同一个工具，不同输入，不同并发分类。系统必须先看输入，再决定。
 
-Claude Code implements two layers of concurrency optimization. The first is **batch orchestration**: after the model's response is fully received, partition the tool calls into concurrent and serial groups, then execute each group appropriately. The second is **speculative execution**: start running tools *while the model is still streaming its response*, harvesting results before the response is even complete. Together, these two mechanisms eliminate most of the wall-clock time that would otherwise be spent waiting.
+Claude Code 有两层并发优化。第一层是**批次编排**：模型响应完整收到后，把工具调用分成并发组和串行组，然后分别执行。第二层是**推测执行**：在模型还在流式输出响应时就先开始跑工具，等响应还没结束，结果可能已经回来了。这两层叠加，能把原本大部分耗在等待上的墙钟时间省掉。
 
 ---
 
-## The Partition Algorithm
+## 分组算法
 
-The entry point is `partitionToolCalls()` in `toolOrchestration.ts`. It takes an ordered array of `ToolUseBlock` messages and produces an array of batches, where each batch is either "all concurrent-safe" or "a single serial tool."
+入口是 `toolOrchestration.ts` 里的 `partitionToolCalls()`。它接收一个有序的 `ToolUseBlock` 数组，并输出若干批次，每个批次要么是“全部可并发安全”，要么是“单个串行工具”。
 
 ```typescript
 // Pseudocode — illustrates the partition algorithm
@@ -41,14 +41,14 @@ function groupBySafety(calls: ToolCall[], registry: ToolRegistry): Group[] {
 }
 ```
 
-The algorithm walks the array left to right. For each tool call:
+算法会从左到右扫数组。每个工具调用都会经历这几步：
 
-1. **Look up the tool definition** by name.
-2. **Parse the input** with the tool's Zod schema via `safeParse()`. If parsing fails, the tool is conservatively classified as not concurrency-safe.
-3. **Call `isConcurrencySafe(parsedInput)`** on the tool definition. This is where per-input classification happens. The Bash tool parses the command string, checks if every subcommand is read-only (`ls`, `grep`, `cat`, `git status`), and returns `true` only if the entire compound command is a pure read. The Read tool always returns `true`. The Edit tool always returns `false`. The call is wrapped in try-catch -- if `isConcurrencySafe` throws (say, the Bash command string can't be parsed by the shell-quote library), the tool defaults to serial.
-4. **Merge or create a batch.** If the current tool is concurrency-safe AND the most recent batch is also concurrency-safe, append to that batch. Otherwise, start a new batch.
+1. **按名称查找工具定义。**
+2. **用工具的 Zod schema 通过 `safeParse()` 解析输入。** 如果解析失败，这个工具会保守地被判为不可并发安全。
+3. **调用工具定义上的 `isConcurrencySafe(parsedInput)`。** 这一步就是按输入做分类的地方。Bash 工具会解析命令字符串，检查每个子命令是不是只读（`ls`、`grep`、`cat`、`git status`），只有整条复合命令都是纯读取时才返回 `true`。`Read` 工具永远返回 `true`。`Edit` 工具永远返回 `false`。这个调用会被 try-catch 包起来 - 如果 `isConcurrencySafe` 抛了异常（比如 Bash 命令字符串无法被 shell-quote 库解析），工具会退回到串行。
+4. **合并或者新建批次。** 如果当前工具可并发安全，而且最近一个批次也是可并发安全，就追加进去；否则就新建一个批次。
 
-The result is a sequence of batches that alternates between concurrent groups and individual serial entries. Walk through a concrete example:
+结果是一串交替出现的批次：并发组、单个串行项、并发组、单个串行项。看一个具体例子：
 
 ```
 Model requests: [Read, Read, Grep, Edit, Read]
@@ -65,17 +65,17 @@ Result: 3 batches
   Batch 3: [Read]              — run concurrently (just one tool)
 ```
 
-The partitioning is greedy and order-preserving. Consecutive safe tools accumulate into a single batch. Any unsafe tool breaks the run and starts a new batch. This means the order in which the model emits tool calls matters -- if it interleaves a Write between two Reads, you get three batches instead of two. In practice, models tend to cluster their reads together, which is the common case the algorithm is optimized for.
+分组策略是贪心且保序的。连续安全的工具会累积到同一个批次里。任何不安全的工具都会打断连续段并开启新批次。这意味着模型发出工具调用的顺序是有影响的 - 如果它在两个 Read 中间插了一个 Write，你得到的就会是三个批次，而不是两个。实际使用里，模型通常会把读操作聚在一起，这正是这个算法要优化的常见情况。
 
 ---
 
-## Batch Execution
+## 批次执行
 
-The `runTools()` generator iterates through the partitioned batches and dispatches each one to the appropriate executor.
+`runTools()` generator 会遍历这些批次，并把每个批次派给合适的执行器。
 
-### Concurrent Batches
+### 并发批次
 
-For a concurrent batch, `runToolsConcurrently()` fires all tools in parallel using an `all()` utility that caps active generators at the concurrency limit:
+对于并发批次，`runToolsConcurrently()` 会用一个 `all()` 工具并行拉起所有工具，同时还会用一个上限控制活跃 generator 的数量：
 
 ```typescript
 // Pseudocode — illustrates the concurrent dispatch pattern
@@ -91,11 +91,11 @@ async function* dispatchParallel(calls, context) {
 }
 ```
 
-The concurrency limit defaults to 10, configurable via `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`. Ten is generous -- you rarely see more than five or six tool calls in a single model response. The limit exists as a safety valve for pathological cases, not as a typical constraint.
+并发上限默认是 10，可以通过 `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` 配置。10 已经很宽裕了 - 单次模型响应里你很少会看到超过 5 到 6 个工具调用。这个上限更像是给极端情况准备的安全阀，而不是日常约束。
 
-The `all()` utility is a generator-aware variant of `Promise.all` with bounded concurrency. It starts up to N generators simultaneously, yields results from whichever completes first, and starts the next queued generator as each one finishes. The mechanics are similar to a semaphore-guarded task pool, but adapted for async generators that yield intermediate results.
+`all()` 工具是 `Promise.all` 的 generator 版本，带有受限并发。它会同时启动最多 N 个 generator，谁先完成就先 yield 谁的结果，等一个结束了再启动下一个排队的 generator。机制上类似带信号量的任务池，只是适配了会产出中间结果的 async generator。
 
-**Context modifier queuing** is the subtle part. Some tools produce *context modifiers* -- functions that transform the `ToolUseContext` for subsequent tools. When tools run concurrently, you cannot apply these modifiers immediately because other tools in the same batch are reading the same context. Instead, modifiers are collected in a map keyed by tool use ID:
+**上下文修改器排队** 是最微妙的部分。某些工具会产生*上下文修改器*，也就是会改变后续工具所见 `ToolUseContext` 的函数。当工具并发运行时，你不能立刻应用这些修改器，因为同一批里的其他工具还在读同一份上下文。于是修改器会按 tool use ID 收集到一个 map 里：
 
 ```typescript
 const queuedContextModifiers: Record<
@@ -104,7 +104,7 @@ const queuedContextModifiers: Record<
 > = {}
 ```
 
-After the entire concurrent batch finishes, the modifiers are applied in tool-order (not completion-order), preserving deterministic context evolution:
+等整个并发批次结束后，这些修改器会按工具顺序而不是完成顺序应用，保证上下文演化是确定性的：
 
 ```typescript
 for (const block of blocks) {
@@ -116,11 +116,11 @@ for (const block of blocks) {
 }
 ```
 
-In practice, none of the current concurrency-safe tools produce context modifiers -- the comment in the codebase acknowledges this explicitly. But the infrastructure exists because tools can be added by MCP servers, and a custom read-only MCP tool might legitimately want to modify context (updating a "files seen" set, for instance).
+实际情况里，目前没有任何并发安全工具会产出上下文修改器 - 代码库里的注释也明确承认了这一点。但这个基础设施之所以存在，是因为工具可以由 MCP server 添加，而某个自定义的只读 MCP 工具完全可能希望修改上下文，比如更新一个“已见文件”集合。
 
-### Serial Batches
+### 串行批次
 
-Serial execution is straightforward. Each tool runs, its context modifiers are applied immediately, and the next tool sees the updated context:
+串行执行就直接得多。每个工具跑完后，它的上下文修改器会立刻应用，后面的工具会看到更新后的上下文：
 
 ```typescript
 for (const toolUse of toolUseMessages) {
@@ -133,19 +133,19 @@ for (const toolUse of toolUseMessages) {
 }
 ```
 
-This is the critical difference. Serial tools can change the world for subsequent tools. An Edit modifies a file; the next Read sees the modified version. A Bash command creates a directory; the next Bash command writes into it. Context modifiers are the formalization of this dependency: they let a tool say "the execution environment has changed, here's how."
+关键差别就在这里。串行工具可以改变世界，供后续工具使用。一个 Edit 会改文件，下一次 Read 会看到修改后的版本。一个 Bash 命令可以创建目录，下一条 Bash 命令就能往里面写。上下文修改器就是这种依赖关系的正式表达：它们告诉系统“执行环境已经变了，变化方式如下”。
 
 ---
 
-## The Streaming Tool Executor
+## 流式工具执行器
 
-Batch orchestration eliminates unnecessary serialization *after* the model's response arrives. But there is a bigger opportunity: the model's response takes time to stream. A typical multi-tool response might take 2-3 seconds to fully arrive. The first tool call is parseable after 500 milliseconds. Why wait for the remaining 2 seconds?
+批次编排解决的是模型响应到达之后多余的串行化问题。但更大的机会是：模型响应本身是流式到来的。一段典型的多工具响应可能要 2 到 3 秒才能完整到达，而第一条工具调用在 500 毫秒时就已经能解析了。为什么还要等剩下那 2 秒？
 
-The `StreamingToolExecutor` class implements speculative execution. As the model streams its response, each `tool_use` block is handed to the executor the moment it is fully parsed. The executor starts running it immediately -- while the model is still generating the next tool call. By the time the response finishes streaming, several tools may have already completed.
+`StreamingToolExecutor` 类实现了推测执行。模型流式输出时，每个 `tool_use` 块一旦被完整解析，就立刻交给执行器。执行器会马上开始跑它 - 同时模型还在生成下一条工具调用。等响应流结束时，部分工具可能已经跑完了。
 
 ```mermaid
 gantt
-    title Sequential vs Streaming Tool Execution
+    title 顺序执行 vs 流式工具执行
     dateFormat X
     axisFormat %Ls
 
@@ -162,85 +162,85 @@ gantt
     Tool 3 drain after stream  :b4, 2500, 2600
 ```
 
-Sequential total: 3.1s. Streaming total: 2.6s -- tools 1 and 2 completed during streaming, saving 16% of wall-clock time.
+顺序执行总耗时：3.1 秒。流式执行总耗时：2.6 秒 - 工具 1 和 2 都在流式输出期间完成了，省下了 16% 的墙钟时间。
 
-The savings compound. When the model requests five read-only tools and the response takes 3 seconds to stream, all five tools can start and finish during that 3 seconds. The post-stream drain phase has nothing left to do. The user sees results almost immediately after the last character of the model's response appears.
+省下来的时间会继续叠加。当模型请求五个只读工具，而响应又要流 3 秒时，这五个工具都可以在这 3 秒里启动并完成。流结束后的 drain 阶段几乎什么都不用做。用户会在模型最后一个字符出现后立刻看到结果。
 
-### Tool Lifecycle
+### 工具生命周期
 
-Each tool tracked by the executor progresses through four states:
+执行器跟踪的每个工具都会经历四个状态：
 
 ```mermaid
 stateDiagram-v2
-    queued --> executing: concurrency check passes
-    executing --> completed: call() finishes
-    completed --> yielded: results emitted in order
+    queued --> executing: 通过并发检查
+    executing --> completed: `call()` 完成
+    completed --> yielded: 按顺序发出结果
 ```
 
-- **queued**: The `tool_use` block has been parsed and registered. Waiting for concurrency conditions to allow execution.
-- **executing**: The tool's `call()` function is running. Results accumulate in a buffer.
-- **completed**: Execution finished. Results are ready to be yielded to the conversation.
-- **yielded**: Results have been emitted. Terminal state.
+- **queued**：`tool_use` 块已经被解析并注册。等待并发条件允许执行。
+- **executing**：工具的 `call()` 正在运行。结果先累积到缓冲区里。
+- **completed**：执行完成。结果已经准备好发给对话。
+- **yielded**：结果已经发出。终态。
 
-### addTool(): Queuing During the Stream
+### `addTool()`：在流式过程中排队
 
 ```typescript
 addTool(block: ToolUseBlock, assistantMessage: AssistantMessage): void
 ```
 
-Called by the streaming response parser each time a complete `tool_use` block arrives. The method:
+流式响应解析器每次拿到一个完整 `tool_use` 块时，就会调用这个方法。它会：
 
-1. Looks up the tool definition. If not found, immediately creates a `completed` entry with an error message -- no point in queuing a tool that does not exist.
-2. Parses the input and determines `isConcurrencySafe` using the same logic as `partitionToolCalls()`.
-3. Pushes a `TrackedTool` with status `'queued'`.
-4. Calls `processQueue()` -- which may start the tool immediately.
+1. 查找工具定义。如果没找到，会立刻创建一个 `completed` 条目并附上错误消息 - 没必要把一个不存在的工具继续排队。
+2. 解析输入，并用和 `partitionToolCalls()` 相同的逻辑判断 `isConcurrencySafe`。
+3. 推入一个状态为 `'queued'` 的 `TrackedTool`。
+4. 调用 `processQueue()` - 它可能会马上启动这个工具。
 
-The call to `processQueue()` is fire-and-forget (`void this.processQueue()`). The executor does not await it. This is intentional: `addTool()` is called from the streaming parser's event handler, and blocking there would stall response parsing. The tool starts executing in the background while the parser continues consuming the stream.
+对 `processQueue()` 的调用是 fire-and-forget（`void this.processQueue()`）。执行器不会等待它返回。这是故意的：`addTool()` 是在流式解析器的事件处理器里被调用的，如果在那里阻塞，响应解析就会停住。工具会在后台开始执行，而解析器继续吃流。
 
-### processQueue(): The Admission Check
+### `processQueue()`：准入检查
 
-The admission check is a single predicate:
+准入检查就是一个简单谓词：
 
 ```typescript
 // Pseudocode — illustrates the mutual exclusion rule
 canRun = noToolsRunning || (newToolIsSafe && allRunningAreSafe)
 ```
 
-A tool can start executing if and only if:
-- **No tools are currently executing** (the queue is empty), OR
-- **Both the new tool and all currently executing tools are concurrency-safe.**
+只有在以下条件之一满足时，工具才能开始执行：
+- **当前没有任何工具在执行**（队列为空），或者
+- **新工具以及所有正在执行的工具都安全可并发。**
 
-This is a mutual exclusion contract. A non-concurrent tool requires exclusive access -- nothing else can be running. Concurrent tools can share the runway with other concurrent tools, but a single non-concurrent tool in the executing set blocks everyone.
+这是一种互斥契约。不并发的工具需要独占访问 - 不能有别的东西同时跑。并发工具可以和其他并发工具共享跑道，但只要执行集合里出现一个非并发工具，所有人都得停。
 
-The `processQueue()` method iterates through all tools in order. For each queued tool, it checks `canExecuteTool()`. If the tool can run, it starts. If a non-concurrent tool cannot run yet, the loop *breaks* -- it stops checking subsequent tools entirely, because non-concurrent tools must maintain ordering. If a concurrent tool cannot run (blocked by an executing non-concurrent tool), the loop *continues* -- but in practice this rarely helps, because concurrent tools after a non-concurrent blocker are typically dependent on its results anyway.
+`processQueue()` 会按顺序遍历所有工具。每个队列中的工具都会检查 `canExecuteTool()`。如果工具可以运行，就启动。如果一个非并发工具还不能运行，循环会 *break* - 直接停止检查后面的工具，因为非并发工具必须保持顺序。如果一个并发工具暂时不能运行（被正在执行的非并发工具挡住了），循环会 *continue* - 但实际中这通常没多大帮助，因为非并发阻塞后面的并发工具，多半本来就依赖它的结果。
 
-### executeTool(): The Core Execution Loop
+### `executeTool()`：核心执行循环
 
-This method is where the real complexity lives. It manages abort controllers, error cascades, progress reporting, and context modifiers.
+这个方法里才是真正复杂的地方。它负责 abort controller、错误级联、进度报告和上下文修改器。
 
-**Child abort controllers.** Each tool gets its own `AbortController` that is a child of a shared sibling-level controller.
+**子 abort controller。** 每个工具都会拿到自己的 `AbortController`，它是共享的同级 controller 的子级。
 
-The hierarchy is three levels deep: the query-level controller (owned by the REPL, fires on user Ctrl+C) parents the sibling controller (owned by the streaming executor, fires on Bash errors) which parents each tool's individual controller. Aborting the sibling controller kills all running tools. Aborting a tool's individual controller kills only that tool -- but it also bubbles up to the query controller if the abort reason is not a sibling error. This bubble-up prevents the system from silently discarding the executor when, for example, a permission denial should end the entire turn.
+层级是三层：query 级 controller（归 REPL 管，用户 Ctrl+C 时触发）父级是 sibling controller（归流式执行器管，Bash 错误时触发），再往下才是每个工具自己的独立 controller。中止 sibling controller 会杀掉所有正在运行的工具。中止某个工具自己的 controller 只会杀掉它自己 - 但如果中止原因不是 sibling 错误，它还会向上冒泡到 query controller。这样可以防止系统悄悄丢掉执行器，比如权限拒绝本应结束整轮对话时。
 
-This bubble-up is essential for permission denial. When a user rejects a tool in the permission dialog, the tool's abort controller fires. That signal must reach the query loop so it can end the turn. Without it, the query loop would continue as if nothing happened, sending a stale rejection message to the model.
+这个向上冒泡对权限拒绝很关键。用户在权限对话框里拒绝某个工具时，这个工具的 abort controller 会触发。那个信号必须传回 query 循环，这样这一轮才会结束。否则 query 循环会像什么都没发生一样继续跑，把一条过时的拒绝消息发给模型。
 
-**The sibling error cascade.** When a tool produces an error result, the executor checks whether to cancel sibling tools. The rule: **only Bash errors cascade.** When a shell command errors, the executor records the failure, captures a description of the errored tool, and aborts the sibling controller -- which cancels all other running tools in the batch.
+**同级错误级联。** 当某个工具返回错误结果时，执行器会检查是否需要取消同级工具。规则是：**只有 Bash 错误会级联。** 当 shell 命令报错时，执行器会记录失败、抓取出错工具的描述，并中止 sibling controller，从而取消同一批里其他所有正在运行的工具。
 
-The rationale is pragmatic. Bash commands often form implicit dependency chains: `mkdir build && cp src/* build/ && tar -czf dist.tar.gz build/`. If `mkdir` fails, running `cp` and `tar` is pointless. Canceling siblings immediately saves time and avoids confusing error messages.
+这个理由很务实。Bash 命令经常形成隐式依赖链：`mkdir build && cp src/* build/ && tar -czf dist.tar.gz build/`。如果 `mkdir` 失败了，继续跑 `cp` 和 `tar` 没什么意义。立刻取消同级工具既省时间，也避免输出一堆让人困惑的错误消息。
 
-Read and Grep errors, by contrast, are independent. If one file read fails because the file was deleted, that has no bearing on a concurrent grep searching a different directory. Canceling the grep would waste work for no reason.
+相比之下，Read 和 Grep 的错误是彼此独立的。如果某个文件因为被删除而读取失败，这对并行搜索另一个目录的 grep 没任何影响。取消 grep 只会白白浪费工作。
 
-The error cascade produces synthetic error messages for sibling tools:
+错误级联会给同级工具生成合成错误消息：
 
 ```
 Cancelled: parallel tool call Bash(mkdir build) errored
 ```
 
-The description includes the first 40 characters of the errored tool's command or file path, giving the model enough context to understand what went wrong.
+描述里会包含出错工具命令或文件路径的前 40 个字符，让模型有足够上下文理解哪里出了问题。
 
-**Progress messages** are handled separately from results. While results are buffered and yielded in order, progress messages (status updates like "Reading file..." or "Searching...") go to a `pendingProgress` array and are yielded immediately via `getCompletedResults()`. A resolve callback wakes up the `getRemainingResults()` loop when new progress arrives, preventing the UI from appearing frozen during long-running tools.
+**进度消息** 和结果是分开处理的。结果会被缓冲并按顺序发出，而进度消息（像“正在读取文件...”或“正在搜索...”这样的状态更新）会进入 `pendingProgress` 数组，并通过 `getCompletedResults()` 立即发出。只要有新的进度到来，resolve callback 就会唤醒 `getRemainingResults()` 循环，这样 UI 在长时间工具运行时也不会看起来卡死。
 
-**Queue re-processing.** After each tool completes, `processQueue()` is called again:
+**队列重跑。** 每个工具完成后，`processQueue()` 都会再次被调用：
 
 ```typescript
 void promise.finally(() => {
@@ -248,27 +248,25 @@ void promise.finally(() => {
 })
 ```
 
-This is how serial tools that were blocked by a concurrent batch get started. When the last concurrent tool finishes, the subsequent non-concurrent tool's `canExecuteTool()` check passes, and it begins executing.
+这就是被并发批次挡住的串行工具怎么启动起来的。当最后一个并发工具结束后，后面的非并发工具的 `canExecuteTool()` 检查会通过，然后它就开始执行。
 
-### Result Harvesting
+### 结果收割
 
-The streaming executor exposes two harvesting methods, designed for two different phases of the response lifecycle.
+流式执行器提供两个收割方法，分别对应响应生命周期的两个阶段。
 
-**`getCompletedResults()` -- mid-stream harvesting.** This is a synchronous generator called between chunks of the streaming API response. It walks the tools array in order and yields results for any tools that have completed:
+**`getCompletedResults()` - 流中收割。** 这是一个同步 generator，会在流式 API 响应的 chunk 之间被调用。它按顺序遍历工具数组，吐出所有已经完成的工具结果：
 
-`getCompletedResults()` is a synchronous generator that walks the tools array in submission order. For each tool, it first drains any pending progress messages. If the tool is completed, it yields the results and marks it as yielded. The critical rule: if a non-concurrent tool is still executing, the walk **breaks** -- nothing after it can be yielded, even if subsequent tools have already completed. Results after a serial tool might depend on its context modifications, so they must wait. For concurrent tools, this restriction does not apply; the loop skips executing concurrent tools and continues checking subsequent entries.
+`getCompletedResults()` 会按提交顺序遍历工具数组。对每个工具，它先排空任何待处理的进度消息。如果工具已经完成，它就 yield 结果并把它标记为 yielded。关键规则是：如果有一个非并发工具还在执行，遍历会 **break** - 它后面的一切都不能先发，即使后面的工具已经完成。串行工具之后的结果可能依赖于它的上下文修改，所以必须等待。对于并发工具，这个限制不存在；循环会跳过仍在执行的并发工具，继续检查后面的条目。
 
-This break is the order-preservation mechanism. If a non-concurrent tool is still executing, nothing after it can be yielded -- even if subsequent tools have already completed. Results after a serial tool might depend on its context modifications, so they must wait. For concurrent tools, this restriction does not apply; the loop skips executing concurrent tools and continues checking subsequent entries.
+**`getRemainingResults()` - 流后 drain。** 模型响应完全收到后调用。这个 async generator 会循环直到所有工具都被 yield 出来：
 
-**`getRemainingResults()` -- post-stream drain.** Called after the model's response is fully received. This async generator loops until every tool is yielded:
+`getRemainingResults()` 是流后 drain。它会一直循环，直到所有工具都发完。每一轮里，它都会先处理队列（启动任何新解锁的工具），然后通过 `getCompletedResults()` 发出已经完成的结果；如果还有工具在跑，但又没有新的结果完成，它就会用 `Promise.race` 进入空闲等待，等最先完成的那个：要么是某个正在执行工具的 promise，要么是一个进度可用信号。这样既避免了忙轮询，又能在有新事件时立刻醒来。如果没有工具完成，也没有任何新工具可以启动，执行器就会等待任何一个正在执行的工具结束（或者等待进度到来）。这避免了忙轮询，同时又能在有事情发生的瞬间立刻唤醒。
 
-`getRemainingResults()` is the post-stream drain. It loops until every tool is yielded. On each iteration, it processes the queue (starting any newly-unblocked tools), yields any completed results via `getCompletedResults()`, and then -- if tools are still executing but nothing new has completed -- uses `Promise.race` to idle-wait on whichever finishes first: any executing tool's promise, or a progress-available signal. This avoids busy-polling while still waking up the moment something happens. When no tools have completed and nothing new can start, the executor waits for any executing tool to finish (or for progress to arrive). This avoids busy-polling while still waking up the moment something happens.
+### 顺序保持
 
-### Order Preservation
+结果发出的顺序是工具*收到*的顺序，不是工具*完成*的顺序。这是刻意设计的。
 
-Results are yielded in the order tools were *received*, not the order they *completed*. This is a deliberate design choice.
-
-Consider a model response that requests `[Read("a.ts"), Read("b.ts"), Read("c.ts")]`. All three start concurrently. `c.ts` finishes first (it is smaller), then `a.ts`, then `b.ts`. If results were yielded in completion order, the conversation would show:
+假设模型响应请求了 `[Read("a.ts"), Read("b.ts"), Read("c.ts")]`。这三个工具都并发启动。`c.ts` 最先完成（它更小），然后是 `a.ts`，最后是 `b.ts`。如果按完成顺序发结果，对话里会变成：
 
 ```
 Tool result: c.ts contents
@@ -276,7 +274,7 @@ Tool result: a.ts contents
 Tool result: b.ts contents
 ```
 
-But the model emitted them in a-b-c order. The conversation history must match the model's expectation, or the next turn will be confused about which result corresponds to which request. By yielding in arrival order, the conversation stays coherent:
+但模型发它们的顺序是 a-b-c。对话历史必须符合模型的预期，不然下一轮它会搞不清哪个结果对应哪个请求。按到达顺序发出，才能保持对话连贯：
 
 ```
 Tool result: a.ts contents  (completed second, yielded first)
@@ -284,11 +282,11 @@ Tool result: b.ts contents  (completed third, yielded second)
 Tool result: c.ts contents  (completed first, yielded third)
 ```
 
-The cost is minor: if tool 1 is slow and tools 2-5 are fast, the fast results sit in buffers until tool 1 finishes. But the alternative -- conversation incoherence -- is far worse.
+代价不大：如果工具 1 很慢，而工具 2 到 5 都很快，那么快结果会在缓冲区里等到工具 1 完成。可替代方案——对话混乱——糟糕得多。
 
-### discard(): The Streaming Fallback Escape Hatch
+### `discard()`：流式 fallback 的逃生口
 
-When the API response stream fails mid-way (network error, server disconnect), the system retries with a new API call. But the streaming executor may have already started tools from the failed attempt. Those results are now orphaned -- they correspond to a response that was never fully received.
+当 API 响应流中途失败（网络错误、server disconnect）时，系统会用新的 API 调用重试。但流式执行器可能已经从失败的那次尝试里启动了工具。这些结果现在成了孤儿 - 它们对应的是一段根本没完整收到的响应。
 
 ```typescript
 discard(): void {
@@ -296,66 +294,66 @@ discard(): void {
 }
 ```
 
-Setting `discarded = true` causes:
-- `getCompletedResults()` returns immediately with no results.
-- `getRemainingResults()` returns immediately with no results.
-- Any tool that starts executing checks `getAbortReason()`, sees `streaming_fallback`, and gets a synthetic error instead of actually running.
+把 `discarded = true` 之后会发生这些事：
+- `getCompletedResults()` 立刻返回，不再吐任何结果。
+- `getRemainingResults()` 立刻返回，不再吐任何结果。
+- 任何新启动的工具都会先检查 `getAbortReason()`，看到 `streaming_fallback`，于是直接拿到一个合成错误，而不是继续真的跑下去。
 
-The discarded executor is abandoned. A fresh executor is created for the retry attempt.
-
----
-
-## Tool Concurrency Properties
-
-Each built-in tool declares its concurrency characteristics through the `isConcurrencySafe()` method. The classification is not arbitrary -- it reflects the tool's actual effect on shared state.
-
-| Tool | Concurrency Safe | Condition | Rationale |
-|------|-----------------|-----------|-----------|
-| **Read** | Always | -- | Pure read. No side effects. |
-| **Grep** | Always | -- | Pure read. Wraps ripgrep. |
-| **Glob** | Always | -- | Pure read. File listing. |
-| **Fetch** | Always | -- | HTTP GET. No local side effects. |
-| **WebSearch** | Always | -- | API call to search provider. |
-| **Bash** | Sometimes | Read-only commands only | `isReadOnly()` parses the command and classifies subcommands. `ls`, `git status`, `cat`, `grep` are safe. `rm`, `mkdir`, `mv` are not. |
-| **Edit** | Never | -- | Modifies files. Two concurrent edits to the same file corrupt it. |
-| **Write** | Never | -- | Creates or overwrites files. Same corruption risk. |
-| **NotebookEdit** | Never | -- | Modifies `.ipynb` files. |
-
-The Bash tool's classification deserves elaboration. It uses `splitCommandWithOperators()` to decompose compound commands (`&&`, `||`, `;`, `|`), then classifies each subcommand against known-safe sets:
-
-- **Search commands**: `grep`, `rg`, `find`, `fd`, `ag`, `ack`
-- **Read commands**: `cat`, `head`, `tail`, `wc`, `jq`, `less`, `file`, `stat`
-- **List commands**: `ls`, `tree`, `du`, `df`
-- **Neutral commands**: `echo`, `printf` (no side effects but not "reads")
-
-A compound command is read-only only if every non-neutral subcommand is in the search, read, or list set. `ls -la && cat README.md` is safe. `ls -la && rm -rf build/` is not -- the `rm` contaminates the entire command.
+这个被丢弃的执行器会被放弃，重试时会创建一个新的执行器。
 
 ---
 
-## The Interrupt Behavior Contract
+## 工具并发属性
 
-While tools are executing, the user can type a new message. What should happen? The answer depends on the tool.
+每个内建工具都会通过 `isConcurrencySafe()` 方法声明自己的并发特性。这个分类不是随便拍脑袋定的，它反映的是工具对共享状态的真实影响。
 
-Each tool declares an `interruptBehavior()` method that returns either `'cancel'` or `'block'`:
+| 工具 | 并发安全 | 条件 | 原因 |
+|------|----------|------|------|
+| **Read** | 永远安全 | -- | 纯读取，没有副作用 |
+| **Grep** | 永远安全 | -- | 纯读取，封装 ripgrep |
+| **Glob** | 永远安全 | -- | 纯读取，文件列表操作 |
+| **Fetch** | 永远安全 | -- | HTTP GET，没有本地副作用 |
+| **WebSearch** | 永远安全 | -- | 调用搜索服务的 API |
+| **Bash** | 有时安全 | 只有只读命令 | `isReadOnly()` 会解析命令并分类子命令。`ls`、`git status`、`cat`、`grep` 安全，`rm`、`mkdir`、`mv` 不安全。 |
+| **Edit** | 从不安全 | -- | 会修改文件。两个并发编辑同一个文件会把它弄坏。 |
+| **Write** | 从不安全 | -- | 创建或覆盖文件。同样会有损坏风险。 |
+| **NotebookEdit** | 从不安全 | -- | 会修改 `.ipynb` 文件。 |
 
-- **`'cancel'`**: Stop the tool immediately, discard partial results, and process the new user message. Used by tools where partial execution is harmless (reads, searches).
-- **`'block'`**: Keep the tool running to completion. The user's new message waits. Used by tools where interruption would leave the system in an inconsistent state (writes mid-flight, long-running bash commands). This is the default.
+Bash 工具的分类值得展开。它会用 `splitCommandWithOperators()` 拆分复合命令（`&&`、`||`、`;`、`|`），再把每个子命令和已知安全集合比对：
 
-The streaming executor tracks the interruptible state of the current tool set:
+- **搜索命令**：`grep`、`rg`、`find`、`fd`、`ag`、`ack`
+- **读取命令**：`cat`、`head`、`tail`、`wc`、`jq`、`less`、`file`、`stat`
+- **列表命令**：`ls`、`tree`、`du`、`df`
+- **中性命令**：`echo`、`printf`（没有副作用，但也不算“读取”）
 
-The interruptible state is updated by checking all currently executing tools: the set is interruptible only when every executing tool supports cancellation. If even one tool's interrupt behavior is `'block'`, the entire set is treated as non-interruptible.
-
-The UI only shows an "interruptible" indicator when ALL executing tools support cancellation. If even one tool is `'block'`, the entire set is treated as non-interruptible. This is conservative but correct: you cannot meaningfully interrupt a batch where one tool would keep running anyway.
-
-When the user does interrupt and all tools are cancellable, the abort controller fires with reason `'interrupt'`. The executor's `getAbortReason()` method checks each tool's interrupt behavior individually -- a `'cancel'` tool gets a synthetic `user_interrupted` error, while a `'block'` tool (which would not be present in a fully interruptible set, but the code handles the edge case) continues running.
+只有所有非中性子命令都属于搜索、读取或列表集合时，复合命令才算只读。`ls -la && cat README.md` 是安全的。`ls -la && rm -rf build/` 不是 - `rm` 会污染整条命令。
 
 ---
 
-## Context Modifiers: The Serial-Only Contract
+## 中断行为契约
 
-Context modifiers are functions of type `(context: ToolUseContext) => ToolUseContext`. They let a tool say "I've changed something about the execution environment that subsequent tools need to know about."
+工具执行时，用户可能输入新消息。应该怎么办？答案取决于工具。
 
-The contract is simple: **context modifiers are only applied for serial (non-concurrent-safe) tools.** This is stated explicitly in the source:
+每个工具都会声明一个 `interruptBehavior()` 方法，返回 `'cancel'` 或 `'block'`：
+
+- **`'cancel'`**：立刻停止工具，丢弃部分结果，处理新的用户消息。适用于部分执行无害的工具（读取、搜索）。
+- **`'block'`**：让工具继续跑完。用户的新消息会等待。适用于中断会让系统处于不一致状态的工具（执行中的写操作、长时间 Bash 命令）。这是默认值。
+
+流式执行器会跟踪当前工具集合的可中断状态：
+
+只有当所有正在执行的工具都支持取消时，这个集合才算可中断。只要有一个工具的中断行为是 `'block'`，整个集合就会被视为不可中断。
+
+只有当所有执行中的工具都支持取消时，UI 才会显示“可中断”指示。只要有一个工具是 `'block'`，整个集合就会被视为不可中断。这个判断很保守，但正确：你没法有意义地中断一批里某个工具还会继续跑的场景。
+
+当用户真的中断，而且所有工具都可取消时，abort controller 会带着 reason `'interrupt'` 触发。执行器的 `getAbortReason()` 会逐个检查工具的中断行为 - `'cancel'` 工具会拿到一个合成的 `user_interrupted` 错误，而 `'block'` 工具（在完全可中断集合里理论上不会出现，但代码还是处理了这个边界情况）会继续跑。
+
+---
+
+## 上下文修改器：只限串行的契约
+
+上下文修改器是类型为 `(context: ToolUseContext) => ToolUseContext` 的函数。它们允许工具声明：“我已经改变了执行环境，后续工具需要知道。”
+
+契约很简单：**上下文修改器只会应用到串行（非并发安全）工具上。** 源码里明确写了：
 
 ```typescript
 // NOTE: we currently don't support context modifiers for concurrent
@@ -368,32 +366,32 @@ if (!tool.isConcurrencySafe && contextModifiers.length > 0) {
 }
 ```
 
-In the batch orchestration path (`toolOrchestration.ts`), concurrent batch modifiers are collected and applied after the batch completes, in tool-submission order. This means concurrent tools within a batch cannot see each other's context changes, but the batch after them can.
+在批次编排路径（`toolOrchestration.ts`）里，并发批次的修改器会在批次结束后按工具提交顺序应用。这意味着同一批次里的并发工具彼此看不到对方的上下文变化，但它们后面的批次可以看到。
 
-The asymmetry is intentional. If Tool A modifies context and Tool B reads that context, they have a data dependency. Data dependencies mean they cannot run concurrently. By definition, if two tools are concurrency-safe, neither should depend on the other's context modifications. The system enforces this by deferring application.
-
----
-
-## Apply This
-
-The concurrency patterns in Claude Code generalize to any system that orchestrates multiple independent operations. Three principles are worth extracting.
-
-**Partition by safety, not by type.** The `isConcurrencySafe(input)` method receives the parsed input, not just the tool name. This per-invocation classification is more precise than a static "this tool type is always safe" declaration. In your own systems, inspect the operation's arguments before deciding whether to parallelize. A database read is safe to parallelize; a database write to the same row is not. The operation type alone does not tell you enough.
-
-**Speculative execution during I/O waits.** The streaming executor starts tools while the API response is still arriving. The same pattern applies anywhere you have a slow producer and fast consumers: start processing early items while later items are still being generated. HTTP/2 server push, compiler pipeline parallelism, and speculative CPU execution all share this structure. The key requirement is that you can identify independent work before the full instruction set is available.
-
-**Preserve submission order in results.** Yielding results in completion order is tempting -- it minimizes latency to first result. But if the consumer (in this case, the language model) expects results in a specific order, reordering them creates confusion that costs more time to resolve than the latency savings. Buffer completed results and release them in the order they were requested. The implementation cost is a simple array walk; the correctness benefit is absolute.
-
-The streaming executor pattern is particularly powerful for agent systems. Any time your agent loop involves a "think, then act" cycle where the thinking phase produces multiple independent actions, you can overlap the tail of thinking with the beginning of acting. The savings are proportional to the ratio of think-time to act-time. For language model agents, where think-time (API response generation) dominates, the savings are substantial.
+这种不对称是有意的。如果工具 A 改变了上下文，而工具 B 依赖这个上下文，它们之间就有数据依赖。只要存在数据依赖，就不能并发。按定义，两个并发安全的工具不应该依赖彼此的上下文修改。系统通过延迟应用来强制这一点。
 
 ---
 
-## Summary
+## 应用到这里
 
-Claude Code's concurrency system operates at two levels. The partition algorithm (`partitionToolCalls`) groups consecutive concurrency-safe tools into batches that run in parallel, while isolating unsafe tools into serial batches where each tool sees the effects of the one before it. The streaming tool executor (`StreamingToolExecutor`) goes further, starting tools speculatively as they arrive during model response streaming, overlapping tool execution with response generation.
+Claude Code 的并发模式可以推广到任何编排多个独立操作的系统。值得提炼出三条原则。
 
-The safety model is conservative by design. Concurrency safety is determined per-invocation by inspecting parsed inputs. Unknown tools default to serial. Parsing failures default to serial. Exceptions in safety checks default to serial. The system never guesses that something is safe to parallelize -- the tool must affirmatively declare it.
+**按安全性分组，而不是按类型分组。** `isConcurrencySafe(input)` 接收的是解析后的输入，而不是工具名。按每次调用分类，比静态声明“这个工具类型永远安全”更精确。你自己的系统里，也应该在决定是否并行之前先检查操作参数。数据库读可以并行，同一行上的数据库写不行。只看操作类型是不够的。
 
-Error handling follows the dependency structure of the tools. Bash errors cascade to siblings because shell commands often form implicit pipelines. Read and search errors are isolated because they are independent operations. The abort controller hierarchy -- query controller, sibling controller, per-tool controller -- gives each level the ability to cancel its scope without disrupting the level above.
+**在 I/O 等待期间做推测执行。** 流式执行器会在 API 响应还在路上的时候先跑工具。凡是存在“慢生产者、快消费者”的场景，都可以用同样模式：边生成后面的项，边处理前面的项。HTTP/2 server push、编译器管线并行、CPU 的推测执行，都有这个结构。关键要求是，你要能在完整指令集到达之前就识别出彼此独立的工作。
 
-The result is a system that extracts maximum parallelism from the model's tool requests while maintaining the invariant that the conversation history reflects a coherent, ordered sequence of actions. The model sees results in the order it requested them. The user sees tools complete as fast as the underlying operations allow. The gap between those two -- execution speed vs. presentation order -- is bridged by buffering, and that buffer is the simplest part of the entire system.
+**结果必须保持提交顺序。** 按完成顺序发结果看起来很诱人，它能缩短第一条结果的延迟。但如果消费者（这里是语言模型）期望的是特定顺序，重排结果反而会制造混乱，最终花掉更多时间去消解。把已经完成的结果缓存起来，按请求顺序释放它们。实现代价只是一次简单数组遍历，正确性收益却是绝对的。
+
+流式执行器模式对代理系统尤其强大。只要你的代理循环里存在“先思考，再行动”的周期，而且思考阶段会产出多个彼此独立的动作，你就能把思考尾部和行动头部重叠起来。节省的时间与思考时间 / 行动时间的比值成正比。对语言模型代理来说，思考时间（API 响应生成）往往占主导，所以收益很大。
+
+---
+
+## 小结
+
+Claude Code 的并发系统分两层工作。分组算法 (`partitionToolCalls`) 会把连续的并发安全工具合并成可以并行执行的批次，同时把不安全工具隔离进串行批次，让每个工具都能看到前一个工具的效果。流式工具执行器 (`StreamingToolExecutor`) 更进一步：它会在模型响应流式到来时就推测启动工具，把工具执行和响应生成重叠起来。
+
+安全模型是保守的，而且是刻意保守。并发安全性要通过检查解析后的输入来逐次调用判断。未知工具默认串行。解析失败默认串行。安全检查抛异常也默认串行。系统从来不会猜某件事“应该可以并行” - 工具必须明确声明它可以。
+
+错误处理遵循工具之间的依赖结构。Bash 错误会级联到同级工具，因为 shell 命令经常形成隐式流水线。Read 和搜索错误则彼此隔离，因为它们是独立操作。abort controller 的层级 - query controller、sibling controller、单工具 controller - 让每一层都能取消自己的范围，而不会扰乱上层。
+
+最终得到的是一个系统：它既能从模型的工具请求里榨出最大的并行度，又能保证对话历史始终反映一系列连贯、有序的动作。模型看到的结果顺序，和它请求时的顺序一致。用户看到工具完成的速度，则尽可能接近底层操作本身允许的极限。两者之间的差距 - 执行速度与展示顺序之间的差距 - 由缓冲来弥合，而这个缓冲恰恰是整个系统里最简单的部分。

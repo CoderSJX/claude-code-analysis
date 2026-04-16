@@ -32,29 +32,29 @@ interface Provider {
 const providers: Provider[] = [
   {
     id: "direct",
-    label: "Direct API",
-    auth: "API Key or OAuth",
+    label: "直连 API",
+    auth: "API Key 或 OAuth",
     color: "#d97757",
     icon: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
   },
   {
     id: "bedrock",
     label: "AWS Bedrock",
-    auth: "AWS Credentials + SSO",
+    auth: "AWS 凭证 + SSO",
     color: "#f59e0b",
     icon: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
   },
   {
     id: "vertex",
     label: "Google Vertex AI",
-    auth: "Google Auth",
+    auth: "Google 认证",
     color: "#4ade80",
     icon: "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
   },
   {
     id: "foundry",
     label: "Foundry",
-    auth: "Custom Auth",
+    auth: "自定义认证",
     color: "#a78bfa",
     icon: "M12 3v18m-7-7l7 7 7-7M5 6l7-3 7 3",
   },
@@ -230,7 +230,7 @@ export default function MultiProviderGraph({ className }: Props) {
               marginTop: 4,
             }}
           >
-            Resolves provider, builds SDK client
+            解析提供商并构建 SDK 客户端
           </div>
         </motion.div>
 

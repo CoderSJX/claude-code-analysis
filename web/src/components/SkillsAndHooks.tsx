@@ -34,38 +34,38 @@ interface HookType {
 // --- Data ---
 
 const skillSources: SkillSource[] = [
-  { id: 1, name: "Managed (Policy)", priority: 1, location: "<MANAGED_PATH>/.claude/skills/", trust: "Enterprise" },
-  { id: 2, name: "User", priority: 2, location: "~/.claude/skills/", trust: "User" },
-  { id: 3, name: "Project", priority: 3, location: ".claude/skills/", trust: "Project" },
-  { id: 4, name: "Additional Dirs", priority: 4, location: "<add-dir>/.claude/skills/", trust: "Varies" },
-  { id: 5, name: "Legacy Commands", priority: 5, location: ".claude/commands/", trust: "Project" },
-  { id: 6, name: "Bundled", priority: 6, location: "Compiled into binary", trust: "Built-in" },
-  { id: 7, name: "MCP", priority: 7, location: "MCP server prompts", trust: "Remote" },
+  { id: 1, name: "托管（策略）", priority: 1, location: "<MANAGED_PATH>/.claude/skills/", trust: "企业" },
+  { id: 2, name: "用户", priority: 2, location: "~/.claude/skills/", trust: "用户" },
+  { id: 3, name: "项目", priority: 3, location: ".claude/skills/", trust: "项目" },
+  { id: 4, name: "附加目录", priority: 4, location: "<add-dir>/.claude/skills/", trust: "不固定" },
+  { id: 5, name: "旧式命令", priority: 5, location: ".claude/commands/", trust: "项目" },
+  { id: 6, name: "内置", priority: 6, location: "Compiled into binary", trust: "内建" },
+  { id: 7, name: "MCP", priority: 7, location: "MCP server prompts", trust: "远程" },
 ];
 
 const sampleSkills: SkillCard[] = [
-  { id: "deploy", name: "/deploy", description: "Run deployment pipeline", source: "Project", tokens: 1847, loaded: false },
-  { id: "review", name: "/review", description: "Code review checklist", source: "Project", tokens: 2103, loaded: false },
-  { id: "test", name: "/test", description: "Run test suite with coverage", source: "User", tokens: 956, loaded: false },
-  { id: "db-migrate", name: "/db-migrate", description: "Database migration helper", source: "Project", tokens: 1432, loaded: false },
-  { id: "format", name: "/format", description: "Format and lint code", source: "Bundled", tokens: 734, loaded: false },
-  { id: "git-pr", name: "/git-pr", description: "Create pull request", source: "Bundled", tokens: 1289, loaded: false },
-  { id: "security", name: "/security", description: "Security audit checklist", source: "Managed", tokens: 2456, loaded: false },
-  { id: "docs", name: "/docs", description: "Generate documentation", source: "User", tokens: 1678, loaded: false },
-  { id: "refactor", name: "/refactor", description: "Refactoring patterns", source: "MCP", tokens: 1923, loaded: false },
-  { id: "debug", name: "/debug", description: "Debugging workflow", source: "Bundled", tokens: 867, loaded: false },
-  { id: "perf", name: "/perf", description: "Performance profiling", source: "Project", tokens: 1544, loaded: false },
-  { id: "api", name: "/api", description: "API design patterns", source: "User", tokens: 2011, loaded: false },
-  { id: "ci", name: "/ci", description: "CI/CD configuration", source: "Project", tokens: 1156, loaded: false },
-  { id: "lint", name: "/lint", description: "Custom lint rules", source: "Legacy", tokens: 623, loaded: false },
-  { id: "scaffold", name: "/scaffold", description: "Project scaffolding", source: "MCP", tokens: 1789, loaded: false },
+  { id: "deploy", name: "/deploy", description: "运行部署流水线", source: "Project", tokens: 1847, loaded: false },
+  { id: "review", name: "/review", description: "代码审查清单", source: "Project", tokens: 2103, loaded: false },
+  { id: "test", name: "/test", description: "运行带覆盖率的测试套件", source: "User", tokens: 956, loaded: false },
+  { id: "db-migrate", name: "/db-migrate", description: "数据库迁移助手", source: "Project", tokens: 1432, loaded: false },
+  { id: "format", name: "/format", description: "格式化并检查代码", source: "Bundled", tokens: 734, loaded: false },
+  { id: "git-pr", name: "/git-pr", description: "创建拉取请求", source: "Bundled", tokens: 1289, loaded: false },
+  { id: "security", name: "/security", description: "安全审计清单", source: "Managed", tokens: 2456, loaded: false },
+  { id: "docs", name: "/docs", description: "生成文档", source: "User", tokens: 1678, loaded: false },
+  { id: "refactor", name: "/refactor", description: "重构模式", source: "MCP", tokens: 1923, loaded: false },
+  { id: "debug", name: "/debug", description: "调试工作流", source: "Bundled", tokens: 867, loaded: false },
+  { id: "perf", name: "/perf", description: "性能剖析", source: "Project", tokens: 1544, loaded: false },
+  { id: "api", name: "/api", description: "API 设计模式", source: "User", tokens: 2011, loaded: false },
+  { id: "ci", name: "/ci", description: "CI/CD 配置", source: "Project", tokens: 1156, loaded: false },
+  { id: "lint", name: "/lint", description: "自定义 lint 规则", source: "Legacy", tokens: 623, loaded: false },
+  { id: "scaffold", name: "/scaffold", description: "项目脚手架", source: "MCP", tokens: 1789, loaded: false },
 ];
 
 const hookTypes: HookType[] = [
-  { id: "pre", name: "PreToolUse", description: "Fires before every tool execution. Can block, modify input, auto-approve, or inject context.", exitCodes: "deny > ask > allow precedence" },
-  { id: "post", name: "PostToolUse", description: "Fires after successful execution. Can inject context or replace MCP tool output.", exitCodes: "Context injection only" },
-  { id: "stop", name: "Stop", description: "Fires before Claude concludes. Exit 2 forces continuation -- the most powerful integration point.", exitCodes: "Exit 2 = force continue" },
-  { id: "notification", name: "Notification", description: "Fires on notifications, elicitations, and session events. Cannot block.", exitCodes: "Non-blocking only" },
+  { id: "pre", name: "PreToolUse", description: "在每次工具执行前触发。可以阻止、修改输入、自动批准或注入上下文。", exitCodes: "deny > ask > allow 优先级" },
+  { id: "post", name: "PostToolUse", description: "在成功执行后触发。可以注入上下文或替换 MCP 工具输出。", exitCodes: "仅上下文注入" },
+  { id: "stop", name: "Stop", description: "在 Claude 结束前触发。退出码 2 会强制继续，是最强的集成点。", exitCodes: "退出码 2 = 强制继续" },
+  { id: "notification", name: "Notification", description: "在通知、唤起和会话事件时触发。不能阻止执行。", exitCodes: "仅非阻塞" },
 ];
 
 // --- Helpers ---
@@ -299,7 +299,7 @@ function SkillsTab({ colors, isDark }: TabProps) {
         }}
       >
         {[
-          { label: "Startup", desc: "Load frontmatter only", active: phase === "startup" },
+          { label: "启动", desc: "只加载 frontmatter", active: phase === "startup" },
           { label: "User types /command", desc: "Skill invoked", active: phase === "invoked" },
           { label: "Execution", desc: "Full content injected", active: phase === "invoked" && loadedSkillId !== null },
         ].map((step, i) => (
@@ -352,7 +352,7 @@ function SkillsTab({ colors, isDark }: TabProps) {
             transition: "background 0.2s",
           }}
         >
-          {phase === "startup" ? "Loading..." : "Simulate Startup"}
+          {phase === "startup" ? "加载中..." : "模拟启动"}
         </button>
         <button
           onClick={() => setShowSources(!showSources)}
@@ -643,7 +643,7 @@ function HooksTab({ colors, isDark }: TabProps) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <LockIcon size={16} color={colors.accent} />
           <span style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>
-            Snapshot Security Model
+            快照安全模型
           </span>
         </div>
         <div style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 1.6 }}>
@@ -668,7 +668,7 @@ function HooksTab({ colors, isDark }: TabProps) {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <LockIcon size={12} color={colors.green} />
-            <span style={{ color: colors.green }}>Startup: config frozen</span>
+            <span style={{ color: colors.green }}>启动时：配置已冻结</span>
           </div>
           <div style={{ color: colors.cardBorder }}>|</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -709,7 +709,7 @@ function HooksTab({ colors, isDark }: TabProps) {
               cursor: "pointer",
             }}
           >
-            {flowStep === "idle" ? "Run Tool Call" : "Reset"}
+            {flowStep === "idle" ? "运行一次工具调用" : "重置"}
           </button>
         </div>
 

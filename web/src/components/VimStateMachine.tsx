@@ -52,12 +52,12 @@ const OPERATORS = new Set(["d", "c", "y"]);
 const MOTIONS = new Set(["w", "b", "e", "0", "$"]);
 
 const PRESET_SEQUENCES = [
-  { keys: "dd", label: "dd", description: "Delete line" },
-  { keys: "d2w", label: "d2w", description: "Delete 2 words" },
-  { keys: "cw", label: "cw", description: "Change word" },
-  { keys: "3dd", label: "3dd", description: "Delete 3 lines" },
-  { keys: "yy", label: "yy", description: "Yank line" },
-  { keys: "p", label: "p", description: "Paste" },
+  { keys: "dd", label: "dd", description: "删除一整行" },
+  { keys: "d2w", label: "d2w", description: "删除 2 个单词" },
+  { keys: "cw", label: "cw", description: "修改当前单词" },
+  { keys: "3dd", label: "3dd", description: "删除 3 行" },
+  { keys: "yy", label: "yy", description: "复制一整行" },
+  { keys: "p", label: "p", description: "粘贴" },
 ];
 
 // --- State Diagram Layout ---
@@ -80,9 +80,9 @@ interface StateEdge {
 const STATE_NODES: StateNode[] = [
   { id: "NORMAL", label: "NORMAL", x: 160, y: 60 },
   { id: "INSERT", label: "INSERT", x: 430, y: 60 },
-  { id: "OPERATOR", label: "Operator", sublabel: "Pending", x: 100, y: 190 },
-  { id: "COUNT", label: "Count", sublabel: "Pending", x: 295, y: 190 },
-  { id: "OP_COUNT", label: "Op+Count", sublabel: "Pending", x: 200, y: 300 },
+  { id: "OPERATOR", label: "操作符", sublabel: "等待中", x: 100, y: 190 },
+  { id: "COUNT", label: "计数", sublabel: "等待中", x: 295, y: 190 },
+  { id: "OP_COUNT", label: "操作符+计数", sublabel: "等待中", x: 200, y: 300 },
 ];
 
 const STATE_EDGES: StateEdge[] = [
@@ -194,7 +194,7 @@ function executeCommand(
     if (newEditor.lines.length === 0) newEditor.lines = [""];
     newEditor.cursorLine = Math.min(newEditor.cursorLine, newEditor.lines.length - 1);
     newEditor.cursorCol = 0;
-    description = c > 1 ? `delete ${c} lines` : "delete line";
+    description = c > 1 ? `删除 ${c} 行` : "删除一行";
   } else if (operator === "y" && motion === null) {
     // yy — yank lines
     const yankCount = Math.min(c, newEditor.lines.length - newEditor.cursorLine);
@@ -202,7 +202,7 @@ function executeCommand(
       newEditor.cursorLine,
       newEditor.cursorLine + yankCount
     );
-    description = c > 1 ? `yank ${c} lines` : "yank line";
+    description = c > 1 ? `复制 ${c} 行` : "复制一行";
   } else if (operator === "d" && motion) {
     // d + motion — delete to motion target
     const target = applyMotion(newEditor, motion, c);
@@ -213,7 +213,7 @@ function executeCommand(
     newEditor.lines[newEditor.cursorLine] = line.slice(0, start) + line.slice(end);
     newEditor.yankBuffer = [deleted];
     newEditor.cursorCol = start;
-    description = c > 1 ? `delete ${c} ${motionName(motion)}s` : `delete ${motionName(motion)}`;
+    description = c > 1 ? `删除 ${c} 次${motionName(motion)}` : `删除到${motionName(motion)}`;
   } else if (operator === "c" && motion) {
     // c + motion — change to motion target, enter INSERT
     const target = applyMotion(newEditor, motion, c);
@@ -223,7 +223,7 @@ function executeCommand(
     newEditor.lines[newEditor.cursorLine] = line.slice(0, start) + line.slice(end);
     newEditor.cursorCol = start;
     toInsert = true;
-    description = c > 1 ? `change ${c} ${motionName(motion)}s` : `change ${motionName(motion)}`;
+    description = c > 1 ? `修改 ${c} 次${motionName(motion)}` : `修改到${motionName(motion)}`;
   } else if (operator === "y" && motion) {
     // y + motion — yank to motion target
     const target = applyMotion(newEditor, motion, c);
@@ -231,7 +231,7 @@ function executeCommand(
     const start = Math.min(newEditor.cursorCol, target.col);
     const end = Math.max(newEditor.cursorCol, target.col);
     newEditor.yankBuffer = [line.slice(start, end)];
-    description = c > 1 ? `yank ${c} ${motionName(motion)}s` : `yank ${motionName(motion)}`;
+    description = c > 1 ? `复制 ${c} 次${motionName(motion)}` : `复制到${motionName(motion)}`;
   }
 
   return { editor: newEditor, description, toInsert };
@@ -239,11 +239,11 @@ function executeCommand(
 
 function motionName(m: string): string {
   switch (m) {
-    case "w": return "word";
-    case "b": return "word back";
-    case "e": return "word end";
-    case "0": return "line start";
-    case "$": return "line end";
+    case "w": return "下一个单词";
+    case "b": return "上一个单词";
+    case "e": return "单词结尾";
+    case "0": return "行首";
+    case "$": return "行尾";
     default: return m;
   }
 }
@@ -629,7 +629,7 @@ export default function VimStateMachine({ className }: { className?: string }) {
               -- {machine.mode} --
             </span>
             {!focused && (
-              <span className="text-xs opacity-70">Click to focus and type vim commands</span>
+              <span className="text-xs opacity-70">点击这里聚焦后即可输入 Vim 命令</span>
             )}
           </div>
           <button
@@ -643,7 +643,7 @@ export default function VimStateMachine({ className }: { className?: string }) {
               color: "#c2c0b6",
             }}
           >
-            Reset
+            重置
           </button>
         </div>
 
@@ -942,7 +942,7 @@ export default function VimStateMachine({ className }: { className?: string }) {
               </span>
             ) : (
               <span style={{ color: "#555" }}>
-                {focused ? "Type a vim command..." : "Click to focus"}
+                {focused ? "输入一个 Vim 命令..." : "点击以聚焦"}
               </span>
             )}
           </div>
@@ -973,7 +973,7 @@ export default function VimStateMachine({ className }: { className?: string }) {
           }}
         >
           <span className="text-xs mr-1" style={{ color: "#87867f" }}>
-            Try:
+            试试：
           </span>
           {PRESET_SEQUENCES.map((preset) => (
             <button
@@ -1004,11 +1004,11 @@ export default function VimStateMachine({ className }: { className?: string }) {
 function operatorName(op: string): string {
   switch (op) {
     case "d":
-      return "delete";
+      return "删除";
     case "c":
-      return "change";
+      return "修改";
     case "y":
-      return "yank";
+      return "复制";
     default:
       return op;
   }

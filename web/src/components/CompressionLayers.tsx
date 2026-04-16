@@ -18,28 +18,28 @@ interface Message {
 
 function createConversation(): Message[] {
   return [
-    { id: "u1", type: "user", label: "Set up the project structure", tokens: 400, visible: true, compressed: false, summary: false, height: 28 },
-    { id: "a1", type: "assistant", label: "I'll create the directories and files...", tokens: 1200, visible: true, compressed: false, summary: false, height: 36 },
-    { id: "t1", type: "tool_result", label: "Bash: mkdir -p src/components (output: 2.1K chars)", tokens: 3800, visible: true, compressed: false, summary: false, height: 44 },
-    { id: "t2", type: "tool_result", label: "Write: src/index.ts (output: 4.5K chars)", tokens: 6200, visible: true, compressed: false, summary: false, height: 52 },
-    { id: "a2", type: "assistant", label: "Now let me configure the build system...", tokens: 2400, visible: true, compressed: false, summary: false, height: 38 },
-    { id: "t3", type: "tool_result", label: "Read: package.json (output: 8.2K chars)", tokens: 12000, visible: true, compressed: false, summary: false, height: 56 },
-    { id: "t4", type: "tool_result", label: "Glob: **/*.config.ts (output: 1.8K chars)", tokens: 2800, visible: true, compressed: false, summary: false, height: 40 },
-    { id: "u2", type: "user", label: "Now add authentication with sessions", tokens: 600, visible: true, compressed: false, summary: false, height: 28 },
-    { id: "a3", type: "assistant", label: "I'll implement session-based auth with better-auth...", tokens: 3200, visible: true, compressed: false, summary: false, height: 42 },
-    { id: "t5", type: "tool_result", label: "Read: src/auth/config.ts (output: 12K chars)", tokens: 18000, visible: true, compressed: false, summary: false, height: 62 },
-    { id: "t6", type: "tool_result", label: "Write: src/auth/session.ts (output: 6.8K chars)", tokens: 9400, visible: true, compressed: false, summary: false, height: 54 },
-    { id: "t7", type: "tool_result", label: "Read: src/database/schema.ts (output: 22K chars)", tokens: 28000, visible: true, compressed: false, summary: false, height: 68 },
-    { id: "a4", type: "assistant", label: "Auth is set up. Let me add the middleware...", tokens: 1800, visible: true, compressed: false, summary: false, height: 36 },
-    { id: "t8", type: "tool_result", label: "Write: src/middleware/auth.ts (output: 9.1K chars)", tokens: 14000, visible: true, compressed: false, summary: false, height: 58 },
-    { id: "u3", type: "user", label: "Add CRUD endpoints for the resources", tokens: 500, visible: true, compressed: false, summary: false, height: 28 },
-    { id: "a5", type: "assistant", label: "I'll create tRPC routers for each resource...", tokens: 4200, visible: true, compressed: false, summary: false, height: 44 },
-    { id: "t9", type: "tool_result", label: "Read: src/routers/index.ts (output: 15K chars)", tokens: 22000, visible: true, compressed: false, summary: false, height: 64 },
-    { id: "t10", type: "tool_result", label: "Write: src/routers/users.ts (output: 11K chars)", tokens: 16000, visible: true, compressed: false, summary: false, height: 60 },
-    { id: "t11", type: "tool_result", label: "Write: src/routers/posts.ts (output: 14K chars)", tokens: 20000, visible: true, compressed: false, summary: false, height: 64 },
-    { id: "a6", type: "assistant", label: "Routers are ready. Running type checks...", tokens: 1600, visible: true, compressed: false, summary: false, height: 34 },
-    { id: "t12", type: "tool_result", label: "Bash: bun run check-types (output: 18K chars)", tokens: 24000, visible: true, compressed: false, summary: false, height: 66 },
-    { id: "t13", type: "tool_result", label: "Bash: bun run test (output: 6.2K chars)", tokens: 8400, visible: true, compressed: false, summary: false, height: 52 },
+    { id: "u1", type: "user", label: "搭建项目结构", tokens: 400, visible: true, compressed: false, summary: false, height: 28 },
+    { id: "a1", type: "assistant", label: "我会创建目录和文件……", tokens: 1200, visible: true, compressed: false, summary: false, height: 36 },
+    { id: "t1", type: "tool_result", label: "Bash: mkdir -p src/components（输出：2.1K 字符）", tokens: 3800, visible: true, compressed: false, summary: false, height: 44 },
+    { id: "t2", type: "tool_result", label: "Write: src/index.ts（输出：4.5K 字符）", tokens: 6200, visible: true, compressed: false, summary: false, height: 52 },
+    { id: "a2", type: "assistant", label: "接下来我来配置构建系统……", tokens: 2400, visible: true, compressed: false, summary: false, height: 38 },
+    { id: "t3", type: "tool_result", label: "Read: package.json（输出：8.2K 字符）", tokens: 12000, visible: true, compressed: false, summary: false, height: 56 },
+    { id: "t4", type: "tool_result", label: "Glob: **/*.config.ts（输出：1.8K 字符）", tokens: 2800, visible: true, compressed: false, summary: false, height: 40 },
+    { id: "u2", type: "user", label: "现在加上带会话的认证", tokens: 600, visible: true, compressed: false, summary: false, height: 28 },
+    { id: "a3", type: "assistant", label: "我会用 better-auth 实现基于会话的认证……", tokens: 3200, visible: true, compressed: false, summary: false, height: 42 },
+    { id: "t5", type: "tool_result", label: "Read: src/auth/config.ts（输出：12K 字符）", tokens: 18000, visible: true, compressed: false, summary: false, height: 62 },
+    { id: "t6", type: "tool_result", label: "Write: src/auth/session.ts（输出：6.8K 字符）", tokens: 9400, visible: true, compressed: false, summary: false, height: 54 },
+    { id: "t7", type: "tool_result", label: "Read: src/database/schema.ts（输出：22K 字符）", tokens: 28000, visible: true, compressed: false, summary: false, height: 68 },
+    { id: "a4", type: "assistant", label: "认证已经配置好了。接下来加中间件……", tokens: 1800, visible: true, compressed: false, summary: false, height: 36 },
+    { id: "t8", type: "tool_result", label: "Write: src/middleware/auth.ts（输出：9.1K 字符）", tokens: 14000, visible: true, compressed: false, summary: false, height: 58 },
+    { id: "u3", type: "user", label: "为资源添加 CRUD 接口", tokens: 500, visible: true, compressed: false, summary: false, height: 28 },
+    { id: "a5", type: "assistant", label: "我会为每个资源创建 tRPC 路由……", tokens: 4200, visible: true, compressed: false, summary: false, height: 44 },
+    { id: "t9", type: "tool_result", label: "Read: src/routers/index.ts（输出：15K 字符）", tokens: 22000, visible: true, compressed: false, summary: false, height: 64 },
+    { id: "t10", type: "tool_result", label: "Write: src/routers/users.ts（输出：11K 字符）", tokens: 16000, visible: true, compressed: false, summary: false, height: 60 },
+    { id: "t11", type: "tool_result", label: "Write: src/routers/posts.ts（输出：14K 字符）", tokens: 20000, visible: true, compressed: false, summary: false, height: 64 },
+    { id: "a6", type: "assistant", label: "路由已经就绪。开始运行类型检查……", tokens: 1600, visible: true, compressed: false, summary: false, height: 34 },
+    { id: "t12", type: "tool_result", label: "Bash: bun run check-types（输出：18K 字符）", tokens: 24000, visible: true, compressed: false, summary: false, height: 66 },
+    { id: "t13", type: "tool_result", label: "Bash: bun run test（输出：6.2K 字符）", tokens: 8400, visible: true, compressed: false, summary: false, height: 52 },
   ];
 }
 
@@ -57,8 +57,8 @@ interface Layer {
 const layers: Layer[] = [
   {
     id: 1,
-    name: "Tool Result Budget",
-    description: "Enforce per-message size limits. Clips large tool outputs to fit within budget.",
+    name: "工具结果预算",
+    description: "强制执行每条消息的大小上限。截断过大的工具输出以适配预算。",
     apply: (msgs) =>
       msgs.map((m) => {
         if (m.type === "tool_result" && m.tokens > 10000) {
@@ -67,7 +67,7 @@ const layers: Layer[] = [
             tokens: Math.floor(m.tokens * 0.4),
             compressed: true,
             height: Math.max(32, Math.floor(m.height * 0.5)),
-            label: m.label.replace(/output: [\d.]+K chars/, "clipped to budget"),
+            label: m.label.replace(/output: [\d.]+K chars/, "已按预算截断"),
           };
         }
         return m;
@@ -75,8 +75,8 @@ const layers: Layer[] = [
   },
   {
     id: 2,
-    name: "Snip Compact",
-    description: "Physically remove old messages from the conversation. Keeps system prompt and recent context.",
+    name: "Snip 压缩",
+    description: "物理移除对话中的旧消息。保留系统提示词和最近上下文。",
     apply: (msgs) => {
       // Remove first ~30% of visible messages
       const visibleIds = msgs.filter((m) => m.visible).map((m) => m.id);
@@ -89,8 +89,8 @@ const layers: Layer[] = [
   },
   {
     id: 3,
-    name: "Microcompact",
-    description: "Remove stale tool results from cache. Keeps structure, drops content of old tool outputs.",
+    name: "微压缩",
+    description: "从缓存中移除陈旧的工具结果。保留结构，丢弃旧工具输出内容。",
     apply: (msgs) =>
       msgs.map((m) => {
         if (m.type === "tool_result" && m.visible && !m.compressed) {
@@ -99,7 +99,7 @@ const layers: Layer[] = [
             tokens: Math.floor(m.tokens * 0.3),
             compressed: true,
             height: 24,
-            label: m.label.replace(/\(output:.*\)/, "(cached: stub)"),
+            label: m.label.replace(/\(output:.*\)/, "（缓存：占位）"),
           };
         }
         return m;
@@ -107,8 +107,8 @@ const layers: Layer[] = [
   },
   {
     id: 4,
-    name: "Context Collapse",
-    description: "Replace verbose spans of messages with AI-generated summaries.",
+    name: "上下文折叠",
+    description: "用 AI 生成的摘要替换冗长消息片段。",
     apply: (msgs) => {
       const visible = msgs.filter((m) => m.visible);
       if (visible.length <= 4) return msgs;
@@ -129,7 +129,7 @@ const layers: Layer[] = [
       result.splice(insertIdx, 0, {
         id: "summary-1",
         type: "assistant",
-        label: "[Summary] Set up project, configured auth, created routers, ran checks",
+        label: "[摘要] 已搭建项目、配置认证、创建路由并运行检查",
         tokens: Math.floor(collapsedTokens * 0.08),
         visible: true,
         compressed: false,
@@ -141,8 +141,8 @@ const layers: Layer[] = [
   },
   {
     id: 5,
-    name: "Auto-Compact",
-    description: "Emergency full summarization. Replaces entire conversation with a concise summary. Circuit breaker prevents repeated triggers.",
+    name: "自动压缩",
+    description: "紧急完整摘要。用简明摘要替换整个对话。断路器可防止重复触发。",
     apply: (msgs) => {
       const totalTokens = msgs
         .filter((m) => m.visible)
@@ -151,7 +151,7 @@ const layers: Layer[] = [
         {
           id: "auto-summary",
           type: "assistant" as const,
-          label: "[Auto-Compact Summary] Full session context: project setup, auth implementation, CRUD routers, type checks passing, tests green",
+          label: "[自动压缩摘要] 完整会话上下文：项目搭建、认证实现、CRUD 路由、类型检查通过、测试绿灯",
           tokens: Math.min(30000, Math.floor(totalTokens * 0.15)),
           visible: true,
           compressed: false,
@@ -264,7 +264,7 @@ export default function CompressionLayers({ className }: Props) {
               fontWeight: 600,
             }}
           >
-            Used:{" "}
+            已用：{" "}
             <motion.span
               key={totalTokens}
               initial={{ opacity: 0.5 }}
@@ -273,7 +273,7 @@ export default function CompressionLayers({ className }: Props) {
             >
               {formatTokens(totalTokens)}
             </motion.span>{" "}
-            / {formatTokens(TOTAL_CAPACITY)} tokens
+            / {formatTokens(TOTAL_CAPACITY)} token
           </span>
           <span
             style={{
@@ -282,7 +282,7 @@ export default function CompressionLayers({ className }: Props) {
               color: colors.textMuted,
             }}
           >
-            {usagePercent.toFixed(0)}% capacity
+            {usagePercent.toFixed(0)}% 容量
           </span>
         </div>
         <div
@@ -415,7 +415,7 @@ export default function CompressionLayers({ className }: Props) {
               letterSpacing: "0.05em",
             }}
           >
-            Compression Layers
+            压缩层
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {layers.map((layer, i) => {
@@ -466,9 +466,9 @@ export default function CompressionLayers({ className }: Props) {
                       }}
                     >
                       {isApplied && savedPerLayer[i] !== undefined
-                        ? `Saved ${formatTokens(savedPerLayer[i])} tokens`
+                        ? `已节省 ${formatTokens(savedPerLayer[i])} token`
                         : isNext
-                          ? "Click to apply"
+                          ? "点击应用"
                           : layer.description.slice(0, 50) + "..."}
                     </div>
                   </button>
@@ -493,7 +493,7 @@ export default function CompressionLayers({ className }: Props) {
               fontFamily: "var(--font-mono)",
             }}
           >
-            Reset conversation
+            重置对话
           </button>
 
           {/* Total saved */}
@@ -515,8 +515,8 @@ export default function CompressionLayers({ className }: Props) {
                   fontWeight: 600,
                 }}
               >
-                Total saved:{" "}
-                {formatTokens(savedPerLayer.reduce((a, b) => a + b, 0))} tokens
+                总共节省：{" "}
+                {formatTokens(savedPerLayer.reduce((a, b) => a + b, 0))} token
               </div>
             </div>
           )}

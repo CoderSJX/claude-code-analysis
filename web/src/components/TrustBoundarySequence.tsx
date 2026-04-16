@@ -22,27 +22,27 @@ function useDarkMode() {
 }
 
 const beforeItems = [
-  "TLS socket preconnect",
-  "Environment variable loading",
-  "Fast-path check (--version, --help)",
-  "Subprocess spawning (git status)",
-  "Keychain reads",
+  "TLS 套接字预连接",
+  "环境变量加载",
+  "快速路径检查（--version、--help）",
+  "子进程启动（git status）",
+  "钥匙串读取",
 ];
 
 const boundaryItems = [
-  "Terms of service acceptance",
-  "Login / authentication",
-  "Trust device prompt",
-  "Setup dialogs (10 total)",
+  "接受服务条款",
+  "登录 / 身份验证",
+  "信任设备提示",
+  "设置对话框（共 10 个）",
 ];
 
 const afterItems = [
-  "Parse CLI arguments",
-  "Resolve configuration",
-  "Load commands, agents, hooks",
-  "Initialize MCP servers",
-  "Build system prompt",
-  "Launch REPL or one-shot",
+  "解析 CLI 参数",
+  "解析配置",
+  "加载命令、智能体和钩子",
+  "初始化 MCP 服务器",
+  "构建系统提示词",
+  "启动 REPL 或单次模式",
 ];
 
 interface Props {
@@ -101,7 +101,7 @@ export default function TrustBoundarySequence({ className }: Props) {
       >
         {/* Before Trust */}
         <div style={sectionStyle(3)}>
-          <div style={labelStyle}>Before Trust</div>
+          <div style={labelStyle}>信任边界之前</div>
           {beforeItems.map((item, i) => (
             <div
               key={i}
@@ -132,7 +132,7 @@ export default function TrustBoundarySequence({ className }: Props) {
               fontStyle: "italic",
             }}
           >
-            No user data accessed yet
+            还未访问任何用户数据
           </div>
         </div>
 
@@ -183,7 +183,7 @@ export default function TrustBoundarySequence({ className }: Props) {
                 marginBottom: 4,
               }}
             >
-              Trust Boundary
+              信任边界
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               {boundaryItems.map((item, i) => (
@@ -215,7 +215,7 @@ export default function TrustBoundarySequence({ className }: Props) {
 
         {/* After Trust */}
         <div style={sectionStyle(3)}>
-          <div style={labelStyle}>After Trust</div>
+          <div style={labelStyle}>信任边界之后</div>
           {afterItems.map((item, i) => (
             <div
               key={i}
@@ -246,7 +246,7 @@ export default function TrustBoundarySequence({ className }: Props) {
               fontStyle: "italic",
             }}
           >
-            Full initialization proceeds
+            继续完成完整初始化
           </div>
         </div>
       </motion.div>

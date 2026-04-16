@@ -41,50 +41,50 @@ const agentTypeInfo: Record<
     model: "Sonnet",
     toolCount: 14,
     permissionMode: "default",
-    description: "Full-featured agent with all tools",
-    tools: "Read, Write, Edit, Bash, Grep, Glob, Agent, ...",
+    description: "具备完整工具集的通用型智能体",
+    tools: "Read、Write、Edit、Bash、Grep、Glob、Agent 等",
     defaultMode: "sync",
   },
   explore: {
     model: "Haiku",
     toolCount: 5,
     permissionMode: "auto-deny writes",
-    description: "Read-only search specialist. Cheapest, fastest",
-    tools: "Read, Grep, Glob, Bash (read-only), Agent",
+    description: "只读搜索专员，成本最低、速度最快",
+    tools: "Read、Grep、Glob、Bash（只读）、Agent",
     defaultMode: "sync",
   },
   plan: {
     model: "Haiku",
     toolCount: 5,
     permissionMode: "auto-deny writes",
-    description: "Research + analysis. No editing capability",
-    tools: "Read, Grep, Glob, Bash (read-only), Agent",
+    description: "负责调研与分析，不具备编辑能力",
+    tools: "Read、Grep、Glob、Bash（只读）、Agent",
     defaultMode: "sync",
   },
   verification: {
     model: "Opus",
     toolCount: 8,
     permissionMode: "default",
-    description: "Adversarial testing + verification",
-    tools: "Read, Bash, Grep, Glob, Edit, Write, ...",
+    description: "负责对抗式测试与验证",
+    tools: "Read、Bash、Grep、Glob、Edit、Write 等",
     defaultMode: "async",
   },
   guide: {
     model: "Sonnet",
     toolCount: 3,
     permissionMode: "auto-deny writes",
-    description: "User-facing guidance. Limited tools",
-    tools: "Read, Grep, Glob",
+    description: "面向用户的引导型智能体，工具受限",
+    tools: "Read、Grep、Glob",
     defaultMode: "sync",
   },
 };
 
 const agentTypeLabels: Record<AgentType, string> = {
-  "general-purpose": "General-Purpose",
-  explore: "Explore",
-  plan: "Plan",
-  verification: "Verification",
-  guide: "Guide",
+  "general-purpose": "通用型",
+  explore: "探索型",
+  plan: "规划型",
+  verification: "验证型",
+  guide: "引导型",
 };
 
 // --- Helpers ---
@@ -219,7 +219,7 @@ export default function SubAgentTree({ className }: Props) {
               transition: "background 0.2s",
             }}
           >
-            Spawn Agent {agents.length >= 6 ? "(max 6)" : ""}
+            生成智能体 {agents.length >= 6 ? "（最多 6 个）" : ""}
           </button>
 
           <AnimatePresence>
@@ -279,7 +279,7 @@ export default function SubAgentTree({ className }: Props) {
                         marginTop: 2,
                       }}
                     >
-                      {agentTypeInfo[type].model} / {agentTypeInfo[type].toolCount} tools
+                      {agentTypeInfo[type].model} / {agentTypeInfo[type].toolCount} 个工具
                     </div>
                   </button>
                 ))}
@@ -309,7 +309,7 @@ export default function SubAgentTree({ className }: Props) {
                 background: colors.syncColor,
               }}
             />
-            Sync
+            同步
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span
@@ -320,7 +320,7 @@ export default function SubAgentTree({ className }: Props) {
                 background: colors.asyncColor,
               }}
             />
-            Async
+            异步
           </span>
         </div>
 
@@ -338,7 +338,7 @@ export default function SubAgentTree({ className }: Props) {
               cursor: "pointer",
             }}
           >
-            Clear
+            清空
           </button>
         )}
       </div>
@@ -366,7 +366,7 @@ export default function SubAgentTree({ className }: Props) {
               textAlign: "center",
             }}
           >
-            Parent Agent
+            父级智能体
             <div
               style={{
                 fontSize: 11,
@@ -567,7 +567,7 @@ export default function SubAgentTree({ className }: Props) {
                               color: colors.textSecondary,
                             }}
                           >
-                            {agent.toolCount} tools
+                            {agent.toolCount} 个工具
                           </span>
                           <span
                             style={{
@@ -597,7 +597,7 @@ export default function SubAgentTree({ className }: Props) {
                             fontFamily: "var(--font-mono)",
                           }}
                         >
-                          {isActive ? "Running..." : "Completed"}
+                          {isActive ? "运行中..." : "已完成"}
                         </div>
                       </div>
                     </motion.div>
@@ -618,8 +618,7 @@ export default function SubAgentTree({ className }: Props) {
               fontSize: 14,
             }}
           >
-            Click "Spawn Agent" to create sub-agents and see how they connect to
-            the parent
+            点击“生成智能体”，创建子智能体并观察它们如何连接到父级
           </div>
         )}
       </div>
@@ -659,7 +658,7 @@ export default function SubAgentTree({ className }: Props) {
                     color: colors.terracotta,
                   }}
                 >
-                  {agentTypeLabels[selected.type]} Agent
+                  {agentTypeLabels[selected.type]}智能体
                 </div>
                 <span
                   style={{
@@ -682,7 +681,7 @@ export default function SubAgentTree({ className }: Props) {
                     fontWeight: 600,
                   }}
                 >
-                  {selected.status}
+                  {selected.status === "running" ? "运行中" : "已完成"}
                 </span>
               </div>
 
@@ -698,15 +697,15 @@ export default function SubAgentTree({ className }: Props) {
                 }}
               >
                 {[
-                  { label: "Model", value: selected.model },
-                  { label: "Tools", value: `${selected.toolCount} available` },
-                  { label: "Permission Mode", value: selected.permissionMode },
+                  { label: "模型", value: selected.model },
+                  { label: "工具", value: `${selected.toolCount} 个可用` },
+                  { label: "权限模式", value: selected.permissionMode },
                   {
                     label: "Abort Controller",
                     value:
                       selected.mode === "sync"
-                        ? "Shared (ESC kills both)"
-                        : "Independent (survives ESC)",
+                        ? "共享（按 ESC 会同时终止）"
+                        : "独立（按 ESC 仍可继续运行）",
                   },
                 ].map((item) => (
                   <div
@@ -763,7 +762,7 @@ export default function SubAgentTree({ className }: Props) {
                     letterSpacing: "0.05em",
                   }}
                 >
-                  Available Tools
+                  可用工具
                 </div>
                 <div
                   style={{
@@ -806,8 +805,8 @@ export default function SubAgentTree({ className }: Props) {
                   }}
                 >
                   {selected.mode === "sync"
-                    ? "Synchronous Execution"
-                    : "Asynchronous Execution"}
+                    ? "同步执行"
+                    : "异步执行"}
                 </div>
                 <div
                   style={{
@@ -817,8 +816,8 @@ export default function SubAgentTree({ className }: Props) {
                   }}
                 >
                   {selected.mode === "sync"
-                    ? "Blocks parent agent. Shares abort controller (ESC kills both). Parent iterates the runAgent() generator directly, yielding messages up the call stack."
-                    : "Runs in background independently. Gets its own abort controller (survives ESC). Results written to disk output file. Parent notified on completion via task-notification."}
+                    ? "会阻塞父级智能体，并共享 abort controller（按 ESC 会同时终止两者）。父级会直接迭代 `runAgent()` generator，让消息沿调用栈向上返回。"
+                    : "会在后台独立运行，拥有自己的 abort controller（按 ESC 也不会被一起终止）。结果会写入磁盘输出文件，并在完成时通过 task-notification 通知父级。"}
                 </div>
               </div>
             </div>

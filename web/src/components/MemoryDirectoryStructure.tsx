@@ -37,28 +37,28 @@ const entries: FileEntry[] = [
   {
     name: "MEMORY.md",
     indent: 4,
-    annotation: "always loaded, index file",
+    annotation: "始终加载，索引文件",
     highlighted: true,
   },
   {
     name: "user_role.md",
     indent: 4,
-    annotation: "user_ prefix = auto-categorized",
+    annotation: "user_ 前缀 = 自动分类",
   },
   {
     name: "feedback_testing.md",
     indent: 4,
-    annotation: "feedback_ prefix = correction-driven",
+    annotation: "feedback_ 前缀 = 纠正驱动",
   },
   {
     name: "project_auth.md",
     indent: 4,
-    annotation: "project_ prefix = domain knowledge",
+    annotation: "project_ 前缀 = 领域知识",
   },
   {
     name: "reference_docs.md",
     indent: 4,
-    annotation: "reference_ prefix = external links",
+    annotation: "reference_ 前缀 = 外部链接",
   },
 ];
 
@@ -231,7 +231,7 @@ export default function MemoryDirectoryStructure({ className }: Props) {
               display: "inline-block",
             }}
           />
-          Always loaded (index)
+          始终加载（索引）
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <span
@@ -243,7 +243,7 @@ export default function MemoryDirectoryStructure({ className }: Props) {
               display: "inline-block",
             }}
           />
-          Loaded on demand via MEMORY.md references
+          通过 MEMORY.md 引用按需加载
         </span>
       </motion.div>
     </div>

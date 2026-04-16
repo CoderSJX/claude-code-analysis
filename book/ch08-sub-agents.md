@@ -1,54 +1,54 @@
-# Chapter 8: Spawning Sub-Agents
+# 第 8 章：生成子智能体
 
-## The Multiplication of Intelligence
+## 智能的倍增
 
-A single agent is powerful. It can read files, edit code, run tests, search the web, and reason about the results. But there is a hard ceiling on what one agent can do in a single conversation: the context window fills up, the task branches in directions that demand different capabilities, and the serial nature of tool execution becomes a bottleneck. The solution is not a bigger model. It is more agents.
+单个代理很强。它可以读文件、改代码、跑测试、搜网页，还能根据结果继续推理。但一个代理在一次对话里能做的事有硬上限：上下文窗口会被塞满，任务会分叉到需要不同能力的方向，而工具执行的串行性质会成为瓶颈。解决办法不是更大的模型，而是更多代理。
 
-Claude Code's sub-agent system lets the model request help. When the parent agent encounters a task that would benefit from delegation -- a codebase search that should not pollute the main conversation, a verification pass that demands adversarial thinking, a set of independent edits that could run in parallel -- it calls the `Agent` tool. That call spawns a child: a fully independent agent with its own conversation loop, its own tool set, its own permission boundary, and its own abort controller. The child does its work and returns a result. The parent never sees the child's internal reasoning, only the final output.
+Claude Code 的子智能体系统允许模型请求帮助。当父代理遇到一个适合分派的任务时 - 比如不该污染主对话的代码库搜索、需要对抗式思考的验证步骤、或者可以并行执行的一组独立修改 - 它就会调用 `Agent` 工具。这个调用会生成一个子代：一个完全独立的代理，拥有自己的对话循环、自己的工具集、自己的权限边界和自己的 abort controller。子代完成工作后返回结果。父代理看不到子代内部的推理，只看到最终输出。
 
-This is not a convenience feature. It is the architectural foundation for everything from parallel file exploration to coordinator-worker hierarchies to multi-agent swarm teams. And it all flows through two files: `AgentTool.tsx`, which defines the model-facing interface, and `runAgent.ts`, which implements the lifecycle.
+这不是一个方便功能。它是从并行文件探索，到 coordinator-worker 层级，再到多智能体 swarm 团队的整个架构基础。它全部通过两个文件流转：`AgentTool.tsx` 定义面向模型的接口，`runAgent.ts` 实现生命周期。
 
-The design challenge is significant. A sub-agent needs enough context to do its job but not so much that it wastes tokens on irrelevant information. It needs permission boundaries that are strict enough for safety but flexible enough for utility. It needs lifecycle management that cleans up every resource it touches without requiring the caller to remember what to clean up. And all of this must work for a spectrum of agent types -- from a cheap, fast, read-only Haiku searcher to an expensive, thorough, Opus-powered verification agent running adversarial tests in the background.
+这个设计挑战并不小。子智能体必须有足够上下文才能把活干好，但又不能多到把 token 浪费在无关信息上。它必须有足够严格的权限边界来保证安全，但又不能严格到失去实用性。它必须有一套生命周期管理，能在不要求调用方记住清理什么的前提下，把触碰过的资源全部清理干净。而且这一切还要兼容一整套代理类型，从廉价、快速、只读的 Haiku 搜索器，到昂贵、细致、由 Opus 驱动、在后台跑对抗测试的验证代理。
 
-This chapter traces the path from the model's "I need help" to a fully operational child agent. We will examine the tool definition that the model sees, the fifteen-step lifecycle that creates the execution environment, the six built-in agent types and what each optimizes for, the frontmatter system that lets users define custom agents, and the design principles that emerge from all of it.
+本章会沿着“模型说我需要帮助”这条路径，追踪到一个完全可运行的子代理。我们会看模型能看到的工具定义、创建执行环境的十五步生命周期、六种内建代理类型及其优化目标、让用户定义自定义代理的 frontmatter 系统，以及由此抽象出来的设计原则。
 
-A note on terminology: throughout this chapter, "parent" refers to the agent that calls the `Agent` tool, and "child" refers to the agent that is spawned. The parent is usually (but not always) the top-level REPL agent. In coordinator mode, the coordinator spawns workers, which are children. In nested scenarios, a child can itself spawn grandchildren -- the same lifecycle applies recursively.
+先说明术语：本章里，“parent” 指调用 `Agent` 工具的代理，“child” 指被生成出来的代理。父代理通常（但不总是）是顶层 REPL 代理。在 coordinator 模式下，coordinator 会生成 worker，这些 worker 就是 child。在嵌套场景里，child 也可以继续生成 grandchild - 同样的生命周期会递归应用。
 
-The orchestration layer spans approximately 40 files across `tools/AgentTool/`, `tasks/`, `coordinator/`, `tools/SendMessageTool/`, and `utils/swarm/`. This chapter focuses on the spawning mechanics -- the AgentTool definition and the runAgent lifecycle. The next chapter covers the runtime: progress tracking, result retrieval, and multi-agent coordination patterns.
+编排层大约横跨 40 个文件，分布在 `tools/AgentTool/`、`tasks/`、`coordinator/`、`tools/SendMessageTool/` 和 `utils/swarm/`。本章聚焦生成机制 - 即 AgentTool 定义和 runAgent 生命周期。下一章会讲运行时：进度跟踪、结果取回，以及多智能体协作模式。
 
 ---
 
-## The AgentTool Definition
+## AgentTool 定义
 
-The `AgentTool` is registered under the name `"Agent"` with a legacy alias `"Task"` for backward compatibility with older transcripts, permission rules, and hook configurations. It is built with the standard `buildTool()` factory, but its schema is more dynamic than any other tool in the system.
+`AgentTool` 以 `"Agent"` 这个名字注册，并保留了一个旧别名 `"Task"`，兼容老转录、权限规则和 hook 配置。它通过标准的 `buildTool()` 工厂构建，但它的 schema 比系统里任何其他工具都更动态。
 
-### The Input Schema
+### 输入 schema
 
-The input schema is constructed lazily via `lazySchema()` -- a pattern we saw in Chapter 6 that defers zod compilation until first use. There are two layers: a base schema and a full schema that adds multi-agent and isolation parameters.
+输入 schema 是通过 `lazySchema()` 懒加载构建的 - 我们在第 6 章见过这个模式，它会把 zod 编译推迟到第一次使用时。这里有两层：基础 schema 和完整 schema，后者增加了多智能体和隔离参数。
 
-The base fields are always present:
+基础字段始终存在：
 
-| Field | Type | Required | Purpose |
-|-------|------|----------|---------|
-| `description` | `string` | Yes | Short 3-5 word summary of the task |
-| `prompt` | `string` | Yes | The full task description for the agent |
-| `subagent_type` | `string` | No | Which specialized agent to use |
-| `model` | `enum('sonnet','opus','haiku')` | No | Model override for this agent |
-| `run_in_background` | `boolean` | No | Launch asynchronously |
+| 字段 | 类型 | 必需 | 作用 |
+|------|------|------|------|
+| `description` | `string` | 是 | 任务的 3-5 词短摘要 |
+| `prompt` | `string` | 是 | 这个代理要执行的完整任务描述 |
+| `subagent_type` | `string` | 否 | 要用哪种专门代理 |
+| `model` | `enum('sonnet','opus','haiku')` | 否 | 为这个代理覆盖模型 |
+| `run_in_background` | `boolean` | 否 | 异步启动 |
 
-The full schema adds multi-agent parameters (when swarm features are active) and isolation controls:
+完整 schema 还会在 swarm 功能开启时增加多智能体参数和隔离控制：
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `name` | `string` | Makes the agent addressable via `SendMessage({to: name})` |
-| `team_name` | `string` | Team context for spawning |
-| `mode` | `PermissionMode` | Permission mode for spawned teammate |
-| `isolation` | `enum('worktree','remote')` | Filesystem isolation strategy |
-| `cwd` | `string` | Absolute path override for working directory |
+| 字段 | 类型 | 作用 |
+|------|------|------|
+| `name` | `string` | 让代理可以通过 `SendMessage({to: name})` 被定向发送消息 |
+| `team_name` | `string` | 生成时的团队上下文 |
+| `mode` | `PermissionMode` | 生成的队友所用的权限模式 |
+| `isolation` | `enum('worktree','remote')` | 文件系统隔离策略 |
+| `cwd` | `string` | 工作目录的绝对路径覆盖值 |
 
-The multi-agent fields enable the swarm pattern covered in Chapter 9: named agents that can send messages to each other via `SendMessage({to: name})` while running concurrently. The isolation fields enable filesystem safety: worktree isolation creates a temporary git worktree so the agent operates on a copy of the repository, preventing conflicting edits when multiple agents work on the same codebase simultaneously.
+多智能体字段支撑的是第 9 章会讲到的 swarm 模式：命名代理可以在并发运行时通过 `SendMessage({to: name})` 相互发消息。隔离字段则保证文件系统安全：worktree 隔离会创建一个临时 git worktree，让代理在副本上操作，这样多个代理同时处理同一代码库时就不会互相冲突。
 
-What makes this schema unusual is that it is **dynamically shaped by feature flags**:
+这个 schema 最特别的地方在于它会**根据特性标志动态变化**：
 
 ```typescript
 // Pseudocode — illustrates the feature-gated schema pattern
@@ -60,49 +60,49 @@ inputSchema = lazySchema(() => {
 })
 ```
 
-When the fork experiment is active, `run_in_background` disappears from the schema entirely because all spawns are forced async under that path. When background tasks are disabled (via `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`), the field is also stripped. When the KAIROS feature flag is off, `cwd` is omitted. The model never sees fields it cannot use.
+当 fork 实验开启时，`run_in_background` 会直接从 schema 中消失，因为那条路径下所有生成都被强制异步。当后台任务被禁用（通过 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`）时，这个字段也会被删掉。当 KAIROS 特性标志关闭时，`cwd` 会被省略。模型看不到它不能用的字段。
 
-This is a subtle but important design choice. The schema is not just validation -- it is the model's instruction manual. Every field in the schema is described in the tool definition that the model reads. Removing fields the model should not use is more effective than adding "do not use this field" to the prompt. The model cannot misuse what it cannot see.
+这是一项微妙但重要的设计。schema 不只是校验，它还是模型的使用说明书。模型看到的每一个字段，都会写进工具定义里。删掉模型不该用的字段，比在 prompt 里加一句“不要用这个字段”更有效。模型看不到，就不会误用。
 
-### The Output Schema
+### 输出 schema
 
-The output is a discriminated union with two public variants:
+输出是一个 discriminated union，公开只有两个变体：
 
-- `{ status: 'completed', prompt, ...AgentToolResult }` -- synchronous completion with the agent's final output
-- `{ status: 'async_launched', agentId, description, prompt, outputFile }` -- background launch acknowledgment
+- `{ status: 'completed', prompt, ...AgentToolResult }` - 同步完成，返回代理的最终输出
+- `{ status: 'async_launched', agentId, description, prompt, outputFile }` - 后台启动确认
 
-Two additional internal variants (`TeammateSpawnedOutput` and `RemoteLaunchedOutput`) exist but are excluded from the exported schema to enable dead code elimination in external builds. The bundler strips these variants and their associated code paths when the corresponding feature flags are disabled, keeping the distributed binary smaller.
+另外还有两个内部变体（`TeammateSpawnedOutput` 和 `RemoteLaunchedOutput`），但它们没有导出到 schema，这样外部构建就能做 dead code elimination。对应特性标志关闭时，打包器会把这些变体及其代码路径一起剔除，让分发二进制更小。
 
-The `async_launched` variant is notable for what it includes: the `outputFile` path where the agent's results will be written when it completes. This lets the parent (or any other consumer) poll or watch the file for results, providing a filesystem-based communication channel that survives process restarts.
+`async_launched` 这个变体最值得注意的是它包含了 `outputFile` 路径 - 代理完成后结果会写到这里。这样父级（或其他消费者）就能轮询或监视这个文件拿结果，从而获得一种基于文件系统的通信通道，即使进程重启也不会丢。
 
-### The Dynamic Prompt
+### 动态 prompt
 
-The `AgentTool` prompt is generated by `getPrompt()` and is context-sensitive. It adapts based on available agents (listed inline or as an attachment to avoid busting prompt cache), whether fork is active (adds "When to fork" guidance), whether the session is in coordinator mode (slim prompt since the coordinator system prompt already covers usage), and subscription tier. Non-pro users get a note about launching multiple agents concurrently.
+`AgentTool` 的 prompt 由 `getPrompt()` 生成，并且是上下文敏感的。它会根据可用代理列表（内联展示，或者作为附件展示，以免破坏 prompt cache）、fork 是否启用（会附加“何时 fork”的指导）、会话是否处于 coordinator 模式（prompt 会更精简，因为 coordinator 的系统提示已经覆盖了用法），以及订阅层级来调整。非 Pro 用户还会看到一条关于同时启动多个代理的提示。
 
-The attachment-based agent list is worth highlighting. The codebase comments reference "approximately 10.2% of fleet cache_creation tokens" being caused by dynamic tool descriptions. Moving the agent list from the tool description to an attachment message keeps the tool description static, so connecting an MCP server or loading a plugin does not bust the prompt cache for every subsequent API call.
+基于附件的代理列表值得特别强调。代码里的注释提到，大约 10.2% 的 fleet cache_creation tokens 是动态工具描述导致的。把代理列表从工具描述挪到附件消息里，可以让工具描述保持静态，这样连接一个 MCP server 或加载一个插件时，不会让后续每次 API 调用都失去 prompt cache。
 
-This is a pattern worth internalizing for any system that uses tool definitions with dynamic content. The Anthropic API caches the prompt prefix -- system prompt, tool definitions, and conversation history -- and reuses the cached computation for subsequent requests that share the same prefix. If the tool definition changes between API calls (because an agent was added or an MCP server connected), the entire cache is invalidated. Moving volatile content from the tool definition (which is part of the cached prefix) to an attachment message (which is appended after the cached portion) preserves the cache while still delivering the information to the model.
+这对任何使用动态工具定义的系统来说，都是值得记住的模式。Anthropic API 会缓存 prompt 前缀 - system prompt、工具定义和对话历史 - 并在后续请求里复用那些前缀相同的计算。如果工具定义在两次 API 调用之间变化了（因为新增了代理，或者接入了一个 MCP server），整个缓存就会失效。把易变内容从工具定义（缓存前缀的一部分）移到附件消息（缓存部分之后追加）里，既保留了缓存，又能把信息传给模型。
 
-With the tool definition understood, we can now trace what happens when the model actually calls it.
+理解了工具定义之后，我们就可以追踪模型真的调用它时会发生什么。
 
-### Feature Gating
+### 特性门控
 
-The sub-agent system has the most complex feature gating in the codebase. At least twelve feature flags and GrowthBook experiments control which agents are available, which parameters appear in the schema, and which code paths are taken:
+子智能体系统是代码库里特性门控最复杂的部分。至少有十二个特性标志和 GrowthBook 实验在控制哪些代理可用、哪些参数出现在 schema 里、以及会走哪些代码路径：
 
-| Feature Gate | Controls |
-|-------------|----------|
-| `FORK_SUBAGENT` | Fork agent path |
-| `BUILTIN_EXPLORE_PLAN_AGENTS` | Explore and Plan agents |
-| `VERIFICATION_AGENT` | Verification agent |
-| `KAIROS` | `cwd` override, assistant force-async |
-| `TRANSCRIPT_CLASSIFIER` | Handoff classification, `auto` mode override |
-| `PROACTIVE` | Proactive module integration |
+| 特性门 | 控制内容 |
+|--------|----------|
+| `FORK_SUBAGENT` | Fork 代理路径 |
+| `BUILTIN_EXPLORE_PLAN_AGENTS` | Explore 和 Plan 代理 |
+| `VERIFICATION_AGENT` | 验证代理 |
+| `KAIROS` | `cwd` 覆盖、assistant 强制异步 |
+| `TRANSCRIPT_CLASSIFIER` | 交接分类、`auto` 模式覆盖 |
+| `PROACTIVE` | 主动模块集成 |
 
-Each gate uses `feature()` from Bun's dead code elimination system (compile-time) or `getFeatureValue_CACHED_MAY_BE_STALE()` from GrowthBook (runtime A/B testing). The compile-time gates are string-replaced during the build -- when `FORK_SUBAGENT` is `'ant'`, the entire fork code path is included; when it is `'external'`, it may be excluded entirely. The GrowthBook gates allow live experimentation: the `tengu_amber_stoat` experiment can A/B test whether removing Explore and Plan agents changes user behavior, without shipping a new binary.
+每个门要么使用 Bun 的 dead code elimination 系统里的 `feature()`（编译期），要么使用 GrowthBook 的 `getFeatureValue_CACHED_MAY_BE_STALE()`（运行时 A/B 测试）。编译期门控会在构建时通过字符串替换完成 - 当 `FORK_SUBAGENT` 是 `'ant'` 时，整个 fork 代码路径会被包含进来；当它是 `'external'` 时，相关代码可能会被完全排除。GrowthBook 门控则允许在线实验：`tengu_amber_stoat` 可以 A/B 测试移除 Explore 和 Plan 代理是否会改变用户行为，而无需发布新二进制。
 
-### The call() Decision Tree
+### `call()` 决策树
 
-Before `runAgent()` is ever invoked, the `call()` method in `AgentTool.tsx` routes the request through a decision tree that determines *what kind* of agent to spawn and *how* to spawn it:
+在 `runAgent()` 被真正调用之前，`AgentTool.tsx` 里的 `call()` 方法会先把请求导入一个决策树，判断*要生成哪种*代理，以及*如何*生成：
 
 ```
 1. Is this a teammate spawn? (team_name + name both set)
@@ -140,19 +140,19 @@ Before `runAgent()` is ever invoked, the `call()` method in `AgentTool.tsx` rout
 10. Execute (async -> registerAsyncAgent + void lifecycle; sync -> iterate runAgent)
 ```
 
-Steps 1 through 6 are pure routing -- no agent has been created yet. The actual lifecycle begins at `runAgent()`, which the sync path iterates directly and the async path wraps in `runAsyncAgentLifecycle()`.
+第 1 到第 6 步都是纯路由 - 这时还没有真正创建代理。真正的生命周期从 `runAgent()` 开始，同步路径会直接迭代它，异步路径则通过 `runAsyncAgentLifecycle()` 包一层。
 
-The routing is done in `call()` rather than `runAgent()` for a reason: `runAgent()` is a pure lifecycle function that does not know about teammates, remote agents, or the fork experiment. It receives a resolved agent definition and executes it. The decision of *which* definition to resolve, *how* to isolate the agent, and *whether* to run synchronously or asynchronously belongs to the layer above. This separation keeps `runAgent()` testable and reusable -- it is called from both the normal AgentTool path and from the async lifecycle wrapper when resuming a backgrounded agent.
+把路由放在 `call()` 而不是 `runAgent()` 里是有原因的：`runAgent()` 是一个纯生命周期函数，它不需要知道 teammate、远程代理或者 fork 实验。它只接收已经解析好的代理定义并执行。该用哪个定义、如何隔离代理、是否要同步运行，这些都属于上层决策。这样的分层让 `runAgent()` 更容易测试，也更容易复用 - 它既会被正常的 AgentTool 路径调用，也会被异步生命周期包装器在恢复后台代理时调用。
 
-The fork guard in step 3 deserves attention. Fork children keep the `Agent` tool in their pool (for cache-identical tool definitions with the parent), but recursive forking would be pathological. Two guards prevent it: `querySource === 'agent:builtin:fork'` (set on the child's context options, survives autocompact) and `isInForkChild(messages)` (scans conversation history for the `<fork-boilerplate>` tag as a fallback). Belt and suspenders -- the primary guard is fast and reliable; the fallback catches edge cases where querySource was not threaded.
+第 3 步里的 fork guard 值得注意。fork 子代会把 `Agent` 工具留在自己的工具池里（这样和父级的工具定义可以完全相同，便于缓存命中），但递归 fork 会非常危险。这里有两道防线：`querySource === 'agent:builtin:fork'`（在子代的上下文选项里设置，压缩后仍然保留）以及 `isInForkChild(messages)`（作为兜底，扫描对话历史里有没有 `<fork-boilerplate>` 标签）。一个快而可靠，另一个兜边界情况：万一 `querySource` 没有被正确传递，就靠这个 fallback 把 recursion 兜住。
 
 ---
 
-## The runAgent Lifecycle
+## `runAgent` 生命周期
 
-`runAgent()` in `runAgent.ts` is an async generator that drives a sub-agent's entire lifecycle. It yields `Message` objects as the agent works. Every sub-agent -- fork, built-in, custom, coordinator worker -- flows through this single function. The function is approximately 400 lines, and every line exists for a reason.
+`runAgent()` 在 `runAgent.ts` 里，是一个驱动子智能体完整生命周期的 async generator。它会在代理工作时 yield `Message` 对象。每一个子智能体 - fork、内建、自定义、协调者 worker - 都会走进这一个函数。这个函数大约 400 行，每一行都有存在理由。
 
-The function signature reveals the complexity of the problem:
+函数签名本身就说明了问题有多复杂：
 
 ```typescript
 export async function* runAgent({
@@ -177,13 +177,13 @@ export async function* runAgent({
 }: { ... }): AsyncGenerator<Message, void>
 ```
 
-Seventeen parameters. Each one represents a dimension of variation that the lifecycle must handle. This is not over-engineering -- it is the natural consequence of a single function serving fork agents, built-in agents, custom agents, sync agents, async agents, worktree-isolated agents, and coordinator workers. The alternative would be seven different lifecycle functions with duplicated logic, which is worse.
+十七个参数。每一个都代表生命周期需要处理的一个变化维度。这不是过度设计，而是一个函数同时服务 fork 代理、内建代理、自定义代理、同步代理、异步代理、worktree 隔离代理和协调者 worker 的自然结果。替代方案会是七个不同的生命周期函数，逻辑重复得更厉害。
 
-The `override` object is particularly important -- it is the escape hatch for fork agents and resumed agents that need to inject pre-computed values (system prompt, abort controller, agent ID) into the lifecycle without re-deriving them.
+`override` 对象尤其重要 - 它是 fork 代理和恢复中的代理的逃生口，允许它们把预先计算好的值（system prompt、abort controller、agent ID）注入生命周期，而不用重新推导。
 
-Here are the fifteen steps.
+下面是十五个步骤。
 
-### Step 1: Model Resolution
+### 第 1 步：模型解析
 
 ```typescript
 const resolvedAgentModel = getAgentModel(
@@ -194,23 +194,23 @@ const resolvedAgentModel = getAgentModel(
 )
 ```
 
-The resolution chain is: **caller override > agent definition > parent model > default**. The `getAgentModel()` function handles special values like `'inherit'` (use whatever the parent uses) and GrowthBook-gated overrides for specific agent types. The Explore agent, for example, defaults to Haiku for external users -- the cheapest and fastest model, appropriate for a read-only search specialist that runs 34 million times per week.
+解析链是：**调用方覆盖 > 代理定义 > 父级模型 > 默认值**。`getAgentModel()` 会处理像 `'inherit'` 这样的特殊值（使用父级所用模型），也会处理某些代理类型受 GrowthBook 门控的覆盖值。比如 Explore 代理在外部用户那里默认用 Haiku - 这是最便宜、最快的模型，适合一个只读搜索专员，而这种专员每周会跑 3400 万次。
 
-Why this order matters: the caller (the parent model) can override the agent definition's preference by passing a `model` parameter in the tool call. This lets the parent promote a normally-cheap agent to a more capable model for a particularly complex search, or demote an expensive agent when the task is simple. But the agent definition's model is the default, not the parent's -- a Haiku Explore agent should not accidentally inherit the parent's Opus model just because no one specified otherwise.
+顺序之所以重要，是因为调用方（父级模型）可以通过工具调用里的 `model` 参数覆盖代理定义里的偏好。这使得父级可以把一个平时很便宜的代理临时升级到更强的模型，用来处理特别复杂的搜索；也可以在任务简单时把昂贵代理降级。但代理定义里的模型是默认值，不是父级的模型 - 不能因为没人显式指定，Haiku 版 Explore 就不小心继承成父级的 Opus。
 
-Understanding the model resolution chain is important because it establishes a design principle that recurs throughout the lifecycle: **explicit overrides beat declarations, declarations beat inheritance, inheritance beats defaults.** This same principle governs permission modes, abort controllers, and system prompts. The consistency makes the system predictable -- once you understand one resolution chain, you understand them all.
+理解这条模型解析链很重要，因为它确立了一个贯穿整个生命周期的设计原则：**显式覆盖优先于声明，声明优先于继承，继承优先于默认值。** 权限模式、abort controller 和 system prompt 也都遵循同样原则。这个一致性让系统可预测 - 你理解了一条解析链，就理解了所有链。
 
-### Step 2: Agent ID Creation
+### 第 2 步：创建代理 ID
 
 ```typescript
 const agentId = override?.agentId ? override.agentId : createAgentId()
 ```
 
-Agent IDs follow the pattern `agent-<hex>` where the hex part is derived from `crypto.randomUUID()`. The branded type `AgentId` prevents accidental string confusion at the type level. The override path exists for resumed agents that need to keep their original ID for transcript continuity.
+代理 ID 的格式是 `agent-<hex>`，其中 hex 部分来自 `crypto.randomUUID()`。品牌化类型 `AgentId` 可以在类型层面防止把字符串搞混。覆盖路径是给恢复中的代理保留原始 ID 用的，这样转录才连续。
 
-### Step 3: Context Preparation
+### 第 3 步：准备上下文
 
-Fork agents and fresh agents diverge here:
+fork 代理和新建代理从这里开始分叉：
 
 ```typescript
 const contextMessages: Message[] = forkContextMessages
@@ -223,13 +223,13 @@ const agentReadFileState = forkContextMessages !== undefined
   : createFileStateCacheWithSizeLimit(READ_FILE_STATE_CACHE_SIZE)
 ```
 
-For fork agents, the parent's entire conversation history is cloned into `contextMessages`. But there is a critical filter: `filterIncompleteToolCalls()` strips any `tool_use` blocks that lack matching `tool_result` blocks. Without this filter, the API would reject the malformed conversation. This happens when the parent is mid-tool-execution at the moment of forking -- the tool_use has been emitted but the result has not arrived yet.
+对 fork 代理来说，父级的整段对话历史会被克隆进 `contextMessages`。但这里有一个关键过滤：`filterIncompleteToolCalls()` 会把没有匹配 `tool_result` 的 `tool_use` 块删掉。不做这个过滤，API 会拒绝这段不合法的对话。这通常发生在父代理 fork 的那一刻刚好还在执行工具 - `tool_use` 已经发出来了，但结果还没回来。
 
-The file state cache follows the same fork-or-fresh pattern. Fork children get a clone of the parent's cache (they already "know" which files have been read). Fresh agents start empty. The clone is a shallow copy -- file content strings are shared via reference, not duplicated. This matters for memory: a fork child with a 50-file cache does not duplicate 50 file contents, it duplicates 50 pointers. The LRU eviction behavior is independent -- each cache evicts based on its own access pattern.
+文件状态缓存也遵循同样的 fork-or-fresh 模式。fork 子代会拿到父级缓存的副本（它们已经“知道”哪些文件被读过了）。新代理则从空缓存开始。这个副本是浅拷贝 - 文件内容字符串通过引用共享，而不是复制多份。这对内存很重要：一个带着 50 个文件缓存的 fork 子代，不会复制 50 份文件内容，只会复制 50 个指针。LRU 淘汰行为则是独立的 - 每个缓存都按自己的访问模式驱逐内容。
 
-### Step 4: CLAUDE.md Stripping
+### 第 4 步：剥离 `CLAUDE.md`
 
-Read-only agents like Explore and Plan have `omitClaudeMd: true` in their definitions:
+像 Explore 和 Plan 这样的只读代理在定义里会设置 `omitClaudeMd: true`：
 
 ```typescript
 const shouldOmitClaudeMd =
@@ -242,15 +242,15 @@ const resolvedUserContext = shouldOmitClaudeMd
   : baseUserContext
 ```
 
-CLAUDE.md files contain project-specific instructions about commit messages, PR conventions, lint rules, and coding standards. A read-only search agent does not need any of this -- it cannot commit, cannot create PRs, cannot edit files. The parent agent has full context and will interpret the search results. Dropping CLAUDE.md here saves billions of tokens per week across the fleet -- an aggregate cost reduction that justifies the added complexity of conditional context injection.
+`CLAUDE.md` 文件包含项目特定指令，比如提交信息、PR 规范、lint 规则和编码标准。只读搜索代理根本不需要这些 - 它不能提交，不能发 PR，不能改文件。父代理已经有完整上下文，会负责解释搜索结果。把 CLAUDE.md 从这里剥离，每周能为整个 fleet 节省数十亿 token - 这个聚合成本足以证明条件注入带来的复杂度是值得的。
 
-Similarly, Explore and Plan agents have `gitStatus` stripped from system context. The git status snapshot taken at session start can be up to 40KB and is explicitly labeled as stale. If these agents need git information, they can run `git status` themselves and get fresh data.
+同样，Explore 和 Plan 代理也会从系统上下文里剥离 `gitStatus`。会话开始时捕获的 git status 快照最多可达 40KB，而且还明确标记为过时。如果这些代理真的需要 git 信息，它们可以自己跑 `git status`，拿到最新数据。
 
-These are not premature optimizations. At 34 million Explore spawns per week, every unnecessary token compounds into measurable cost. The kill-switch (`tengu_slim_subagent_claudemd`) defaults to true but can be flipped via GrowthBook if the stripping causes regressions.
+这不是过早优化。Explore 每周 3400 万次 spawn，任何不必要的 token 都会累积成可观成本。这个 kill-switch（`tengu_slim_subagent_claudemd`）默认开启，但如果剥离策略引发回归，可以通过 GrowthBook 翻转。
 
-### Step 5: Permission Isolation
+### 第 5 步：权限隔离
 
-This is the most intricate step. Each agent gets a custom `getAppState()` wrapper that overlays its permission configuration onto the parent's state:
+这是最复杂的一步。每个代理都会拿到一个定制的 `getAppState()` 包装器，把它自己的权限配置覆盖到父级状态之上：
 
 ```typescript
 const agentGetAppState = () => {
@@ -294,17 +294,17 @@ const agentGetAppState = () => {
 }
 ```
 
-There are four distinct concerns layered together:
+这里叠了四件不同的事：
 
-**Permission mode cascade.** If the parent is in `bypassPermissions`, `acceptEdits`, or `auto` mode, the parent's mode always wins -- the agent definition cannot weaken it. Otherwise, the agent definition's `permissionMode` is applied. This prevents a custom agent from downgrading security when the user has explicitly set a permissive mode for the session.
+**权限模式级联。** 如果父级在 `bypassPermissions`、`acceptEdits` 或 `auto` 模式下，父级模式永远优先 - 代理定义不能把它削弱。否则会应用代理定义里的 `permissionMode`。这样可以避免自定义代理在用户已经为会话设定了宽松模式时，把安全级别偷偷降下去。
 
-**Prompt avoidance.** Background agents cannot show permission dialogs -- there is no terminal attached. So `shouldAvoidPermissionPrompts` is set to `true`, which causes the permission system to auto-deny rather than block. The exception is `bubble` mode: these agents surface prompts to the parent's terminal, so they can always show prompts regardless of sync/async status.
+**避免弹窗。** 后台代理不能弹权限对话框 - 它没有终端。所以 `shouldAvoidPermissionPrompts` 会被设成 `true`，这样权限系统会自动拒绝，而不是阻塞。例外是 `bubble` 模式：这类代理会把提示上浮到父级终端，所以无论同步/异步状态如何，它都能弹窗。
 
-**Automated check ordering.** Background agents that *can* show prompts (bubble mode) set `awaitAutomatedChecksBeforeDialog`. This means the classifier and permission hooks run first; the user is only interrupted if automated resolution fails. For background work, waiting an extra second for the classifier is fine -- the user should not be interrupted unnecessarily.
+**自动检查顺序。** 能弹窗的后台代理（bubble 模式）会设置 `awaitAutomatedChecksBeforeDialog`。这表示先跑分类器和权限 hooks，只有自动化处理失败时才会打扰用户。对于后台工作来说，多等一秒分类器完全可以接受 - 不应该无谓地打断用户。
 
-**Tool permission scoping.** When `allowedTools` is provided, it replaces the session-level allow rules entirely. This prevents parent approvals from leaking through to scoped agents. But SDK-level permissions (from `--allowedTools` CLI flag) are preserved -- those represent the embedding application's explicit security policy and should apply everywhere.
+**工具权限范围控制。** 提供 `allowedTools` 时，它会完全覆盖会话级 allow 规则。这样可以防止父级批准泄漏到受限代理里。但 SDK 级权限（来自 `--allowedTools` CLI flag）会保留下来 - 那代表的是嵌入应用显式定义的安全策略，应该全局生效。
 
-### Step 6: Tool Resolution
+### 第 6 步：工具解析
 
 ```typescript
 const resolvedTools = useExactTools
@@ -312,17 +312,17 @@ const resolvedTools = useExactTools
   : resolveAgentTools(agentDefinition, availableTools, isAsync).resolvedTools
 ```
 
-Fork agents use `useExactTools: true`, which passes the parent's tool array through unchanged. This is not just convenience -- it is a cache optimization. Different tool definitions serialize differently (different permission modes produce different tool metadata), and any divergence in the tool block busts the prompt cache. Fork children need byte-identical prefixes.
+fork 代理使用 `useExactTools: true`，直接把父级的工具数组原样传过来。这不只是方便 - 这是缓存优化。不同工具定义的序列化方式不同（不同权限模式会产出不同的工具元数据），只要工具块有任何偏离，prompt cache 就会失效。fork 子代需要字节级一致的前缀。
 
-For normal agents, `resolveAgentTools()` applies a layered filter:
-- `tools: ['*']` means all tools; `tools: ['Read', 'Bash']` means only those
-- `disallowedTools: ['Agent', 'FileEdit']` removes those from the pool
-- Built-in agents and custom agents have different base disallowed tool sets
-- Async agents get filtered through `ASYNC_AGENT_ALLOWED_TOOLS`
+对于普通代理，`resolveAgentTools()` 会做分层过滤：
+- `tools: ['*']` 表示所有工具；`tools: ['Read', 'Bash']` 表示只有这些
+- `disallowedTools: ['Agent', 'FileEdit']` 会把这些工具移出池子
+- 内建代理和自定义代理有不同的基础禁用列表
+- 异步代理会再经过 `ASYNC_AGENT_ALLOWED_TOOLS` 过滤
 
-The result is that each agent type sees exactly the tools it should have. The Explore agent cannot call FileEdit. The Verification agent cannot call Agent (no recursive spawning from a verifier). Custom agents have a more restrictive default deny list than built-ins.
+结果就是每种代理都拿到自己该有的工具。Explore 不能调用 FileEdit。Verification 不能调用 Agent（验证器不能再递归生成别的代理）。自定义代理的默认禁用列表比内建代理更严格。
 
-### Step 7: System Prompt
+### 第 7 步：系统提示
 
 ```typescript
 const agentSystemPrompt = override?.systemPrompt
@@ -335,11 +335,11 @@ const agentSystemPrompt = override?.systemPrompt
     )
 ```
 
-Fork agents receive the parent's pre-rendered system prompt via `override.systemPrompt`. This is threaded from `toolUseContext.renderedSystemPrompt` -- the exact bytes the parent used in its last API call. Recomputing the system prompt via `getSystemPrompt()` could diverge. GrowthBook features might have transitioned from cold to warm between the parent's call and the child's. A single byte difference in the system prompt busts the entire prompt cache prefix.
+fork 代理通过 `override.systemPrompt` 接收父级预渲染好的系统提示。这个值来自 `toolUseContext.renderedSystemPrompt` - 也就是父级上一次 API 调用里使用的确切字节。如果重新调用 `getSystemPrompt()`，结果可能不一样。GrowthBook 特性在父级调用和子级启动之间可能已经从 cold 变 warm。只要系统提示里某个条件块因为这个标志变化了哪怕一个字符，整个 prompt cache 前缀就会失效。
 
-For normal agents, `getAgentSystemPrompt()` calls the agent definition's `getSystemPrompt()` function, then enhances with environment details -- absolute paths, emoji guidance (Claude tends to over-use emojis in certain contexts), and model-specific instructions.
+对普通代理来说，`getAgentSystemPrompt()` 会调用代理定义里的 `getSystemPrompt()`，然后再补上环境细节 - 绝对路径、emoji 指导（Claude 在某些场景里会过度使用 emoji），以及模型相关指令。
 
-### Step 8: Abort Controller Isolation
+### 第 8 步：隔离 abort controller
 
 ```typescript
 const agentAbortController = override?.abortController
@@ -349,15 +349,15 @@ const agentAbortController = override?.abortController
     : toolUseContext.abortController
 ```
 
-Three lines, three behaviors:
+这三行对应三种行为：
 
-- **Override**: Used when resuming a backgrounded agent or for special lifecycle management. Takes precedence.
-- **Async agents get a new, unlinked controller.** When the user presses Escape, the parent's abort controller fires. Async agents should survive this -- they are background work that the user chose to delegate. Their independent controller means they keep running.
-- **Sync agents share the parent's controller.** Escape kills both. The child is blocking the parent; if the user wants to stop, they want to stop everything.
+- **覆盖**：用于恢复后台代理或特殊生命周期管理。优先级最高。
+- **异步代理拿新的、独立的 controller。** 用户按 Escape 时，父级的 abort controller 会触发。异步代理应该不受影响 - 它们是用户已经委托出去的后台工作。独立 controller 意味着它们会继续跑。
+- **同步代理共享父级 controller。** Escape 会把两者都杀掉。子代理在阻塞父级；如果用户要停，通常就是要全部停。
 
-This is one of those decisions that seems obvious in retrospect but would be catastrophic if wrong. An async agent that aborts when the parent aborts would lose all its work every time the user pressed Escape to ask a follow-up question. A sync agent that ignored the parent's abort would leave the user staring at a frozen terminal.
+这个决定看上去很直观，但如果错了会很糟糕。异步代理如果会跟着父级一起 abort，那么用户每次按 Escape 只是想继续问问题时，它都会丢掉所有工作。同步代理如果无视父级的 abort，用户就只能盯着一个冻结的终端。
 
-### Step 9: Hook Registration
+### 第 9 步：注册 hooks
 
 ```typescript
 if (agentDefinition.hooks && hooksAllowedForThisAgent) {
@@ -368,13 +368,13 @@ if (agentDefinition.hooks && hooksAllowedForThisAgent) {
 }
 ```
 
-Agent definitions can declare their own hooks (PreToolUse, PostToolUse, etc.) in frontmatter. These hooks are scoped to the agent's lifecycle via the `agentId` -- they only fire for this agent's tool calls, and they are automatically cleaned up in the `finally` block when the agent terminates.
+代理定义可以在 frontmatter 里声明自己的 hooks（PreToolUse、PostToolUse 等）。这些 hooks 通过 `agentId` 作用域化到代理生命周期里 - 只会在这一个代理的工具调用里触发，并且在代理结束时会在 `finally` 块中自动清理。
 
-The `isAgent: true` flag (the final `true` parameter) converts `Stop` hooks to `SubagentStop` hooks. Sub-agents trigger `SubagentStop`, not `Stop`, so the conversion ensures the hooks fire at the right event.
+最后一个 `true` 参数，也就是 `isAgent: true` 标志，会把 `Stop` hooks 转成 `SubagentStop` hooks。子智能体触发的是 `SubagentStop`，不是 `Stop`，所以做这个转换才能让 hooks 在正确事件上触发。
 
-Security matters here. When `strictPluginOnlyCustomization` is active for hooks, only plugin, built-in, and policy-settings agent hooks are registered. User-controlled agents (from `.claude/agents/`) have their hooks silently skipped. This prevents a malicious or misconfigured agent definition from injecting hooks that bypass security controls.
+这里的安全性也很重要。当 hooks 开启 `strictPluginOnlyCustomization` 时，只有插件、内建以及 policy-settings 代理的 hooks 会被注册。用户控制的代理（来自 `.claude/agents/`）其 hooks 会被悄悄跳过。这能防止恶意或配置错误的代理定义注入绕过安全控制的 hooks。
 
-### Step 10: Skill Preloading
+### 第 10 步：预加载 skills
 
 ```typescript
 const skillsToPreload = agentDefinition.skills ?? []
@@ -384,27 +384,27 @@ if (skillsToPreload.length > 0) {
 }
 ```
 
-Agent definitions can specify `skills: ["my-skill"]` in their frontmatter. The resolution tries three strategies: exact match, prefix with the agent's plugin name (e.g., `"my-skill"` becomes `"plugin:my-skill"`), and suffix match on `":skillName"` for plugin-namespaced skills. The three-strategy resolution ensures that skill references work regardless of whether the agent author used the fully-qualified name, the short name, or the plugin-relative name.
+代理定义可以在 frontmatter 里声明 `skills: ["my-skill"]`。解析时会尝试三种策略：精确匹配、以代理插件名为前缀的匹配（比如 `"my-skill"` 变成 `"plugin:my-skill"`），以及针对插件命名空间 skill 的 `":skillName"` 后缀匹配。这三种策略确保无论代理作者使用完整名、短名还是插件相对名，skill 引用都能正常工作。
 
-Loaded skills become user messages prepended to the agent's conversation. This means the agent "reads" its skill instructions before seeing the task prompt -- the same mechanism used for slash commands in the main REPL, repurposed for automated skill injection. The skill content is loaded concurrently via `Promise.all()` to minimize startup latency when multiple skills are specified.
+加载后的 skills 会变成预先插入代理对话的 user messages。也就是说，代理会在看到任务 prompt 之前先“读”这些 skill 指令 - 这和主 REPL 里的 slash command 使用的是同一种机制，只不过这里被改造成了自动 skill 注入。多个 skills 会通过 `Promise.all()` 并发加载，以尽量降低启动延迟。
 
-### Step 11: MCP Initialization
+### 第 11 步：MCP 初始化
 
 ```typescript
 const { clients: mergedMcpClients, tools: agentMcpTools, cleanup: mcpCleanup } =
   await initializeAgentMcpServers(agentDefinition, toolUseContext.options.mcpClients)
 ```
 
-Agents can define their own MCP servers in frontmatter, additive to the parent's clients. Two forms are supported:
+代理可以在 frontmatter 里声明自己的 MCP server，这些 server 会在父级客户端基础上做增量添加。支持两种形式：
 
-- **Reference by name**: `"slack"` looks up an existing MCP config and gets a shared, memoized client
-- **Inline definition**: `{ "my-server": { command: "...", args: [...] } }` creates a new client that is cleaned up when the agent finishes
+- **按名称引用**：`"slack"` 会查找已有的 MCP 配置，并拿到共享的、已 memoized 的 client
+- **内联定义**：`{ "my-server": { command: "...", args: [...] } }` 会创建一个新的 client，代理结束时会清理它
 
-Only newly created (inline) clients are cleaned up. Shared clients are memoized at the parent level and persist beyond the agent's lifetime. This distinction prevents an agent from accidentally tearing down an MCP connection that other agents or the parent are still using.
+只有新建的（内联）client 会被清理。共享 client 会在父级层面 memoize，并在代理生命周期之外继续存在。这样就不会出现某个代理顺手把别的代理或父级还在用的 MCP 连接拆掉的问题。
 
-The MCP initialization happens *after* hook registration and skill preloading but *before* context creation. This ordering matters: the MCP tools must be merged into the tool pool before `createSubagentContext()` snapshots the tools into the agent's options. Reordering these steps would mean the agent either has no MCP tools or has them but they are not in its tool pool.
+MCP 初始化发生在 hook 注册和 skill 预加载之后，但在上下文创建之前。顺序很重要：MCP 工具必须先合并进工具池，然后 `createSubagentContext()` 才会把工具快照进代理的选项里。要是顺序调反了，代理要么拿不到 MCP 工具，要么工具有了但不在自己的工具池里。
 
-### Step 12: Context Creation
+### 第 12 步：创建上下文
 
 ```typescript
 const agentToolUseContext = createSubagentContext(toolUseContext, {
@@ -423,28 +423,28 @@ const agentToolUseContext = createSubagentContext(toolUseContext, {
 })
 ```
 
-`createSubagentContext()` in `utils/forkedAgent.ts` assembles the new `ToolUseContext`. The key isolation decisions:
+`utils/forkedAgent.ts` 里的 `createSubagentContext()` 会组装新的 `ToolUseContext`。关键的隔离决策是：
 
-- **Sync agents share `setAppState`** with the parent. State changes (like permission approvals) are immediately visible to both. The user sees one coherent state.
-- **Async agents get isolated `setAppState`**. The parent's copy is a no-op for the child's writes. But `setAppStateForTasks` reaches the root store -- the child can still update task state (progress, completion) that the UI observes.
-- **Both share `setResponseLength`** for response metrics tracking.
-- **Fork agents inherit `thinkingConfig`** for cache-identical API requests. Normal agents get `{ type: 'disabled' }` -- thinking (extended reasoning tokens) is disabled to control output costs. The parent pays for thinking; the children execute.
+- **同步代理与父级共享 `setAppState`。** 状态变化（比如权限批准）会立即对双方可见。用户看到的是一份统一状态。
+- **异步代理拿到隔离的 `setAppState`。** 父级那一份对孩子的写入是 no-op。但 `setAppStateForTasks` 会直达 root store - 子代理仍然可以更新任务状态（进度、完成情况），让 UI 感知到。
+- **两者都共享 `setResponseLength`**，用于响应指标跟踪。
+- **fork 代理会继承 `thinkingConfig`**，以便构造字节一致的 API 请求。普通代理则拿 `{ type: 'disabled' }` - 为了控制输出成本，thinking（扩展推理 token）被禁用。父级付 reasoning 的钱，子代负责执行。
 
-The `createSubagentContext()` function is worth examining for what it *isolates* versus what it *shares*. The isolation boundary is not all-or-nothing -- it is a carefully chosen set of shared and isolated channels:
+`createSubagentContext()` 值得研究的地方就在于它是怎么“隔离”与“共享”之间做取舍的。边界不是非黑即白，而是一组精心挑选的共享通道和隔离通道：
 
-| Concern | Sync Agent | Async Agent |
-|---------|-----------|-------------|
-| `setAppState` | Shared (parent sees changes) | Isolated (parent's copy is no-op) |
-| `setAppStateForTasks` | Shared | Shared (task state must reach root) |
-| `setResponseLength` | Shared | Shared (metrics need global view) |
-| `readFileState` | Own cache | Own cache |
-| `abortController` | Parent's | Independent |
-| `thinkingConfig` | Fork: inherited / Normal: disabled | Fork: inherited / Normal: disabled |
-| `messages` | Own array | Own array |
+| 关注点 | 同步代理 | 异步代理 |
+|--------|----------|----------|
+| `setAppState` | 共享（父级能看到变化） | 隔离（父级那份是 no-op） |
+| `setAppStateForTasks` | 共享 | 共享（任务状态必须回到 root） |
+| `setResponseLength` | 共享 | 共享（指标需要全局视图） |
+| `readFileState` | 自己的缓存 | 自己的缓存 |
+| `abortController` | 父级的 | 独立的 |
+| `thinkingConfig` | fork：继承 / 普通：禁用 | fork：继承 / 普通：禁用 |
+| `messages` | 自己的数组 | 自己的数组 |
 
-The asymmetry between `setAppState` (isolated for async) and `setAppStateForTasks` (always shared) is a key design decision. An async agent cannot push state changes to the parent's reactive store -- that would cause the parent's UI to jump unexpectedly. But the agent must still be able to update the global task registry, because that is how the parent knows the background agent has completed. The split channel solves both requirements.
+`setAppState`（异步时隔离）和 `setAppStateForTasks`（始终共享）之间的不对称，是一个关键设计决策。异步代理不能把状态变化推到父级的响应式 store 里 - 那会让父级 UI 突然跳动。但它仍然必须能更新全局任务注册表，因为父级就是靠这个知道后台代理已经完成的。这个拆分通道同时满足了两种需求。
 
-### Step 13: Cache-Safe Params Callback
+### 第 13 步：缓存安全参数回调
 
 ```typescript
 if (onCacheSafeParams) {
@@ -458,9 +458,9 @@ if (onCacheSafeParams) {
 }
 ```
 
-This callback is consumed by background summarization. When an async agent is running, the summarization service can fork the agent's conversation -- using these exact params to construct a cache-identical prefix -- and generate periodic progress summaries without disturbing the main conversation. The params are "cache-safe" because they produce the same API request prefix the agent is using, maximizing cache hits.
+这个回调被后台摘要服务消费。当异步代理在运行时，摘要服务可以 fork 这个代理的对话 - 用这些精确参数构造一个字节一致的前缀 - 然后周期性地产出进度摘要，而不会打扰主对话。之所以叫“cache-safe”，是因为它们会生成和代理本身一样的 API 请求前缀，最大化缓存命中。
 
-### Step 14: The Query Loop
+### 第 14 步：查询循环
 
 ```typescript
 try {
@@ -482,23 +482,23 @@ try {
 }
 ```
 
-The same `query()` function from Chapter 3 drives the sub-agent's conversation. The sub-agent's messages are yielded back to the caller -- either `AgentTool.call()` for sync agents (which iterates the generator inline) or `runAsyncAgentLifecycle()` for async agents (which consumes the generator in a detached async context).
+第 3 章里的同一个 `query()` 函数驱动着子智能体的对话。子智能体的消息会回流给调用方 - 同步代理由 `AgentTool.call()` 直接迭代这个 generator，异步代理则由 `runAsyncAgentLifecycle()` 在分离的异步上下文里消费。
 
-Each yielded message is recorded to a sidechain transcript via `recordSidechainTranscript()` -- an append-only JSONL file per agent. This enables resume: if the session is interrupted, the agent can be reconstructed from its transcript. The recording is `O(1)` per message, appending only the new message with a reference to the previous UUID for chain continuity.
+每条 yield 出来的消息都会通过 `recordSidechainTranscript()` 记录到 sidechain transcript 里 - 那是一个按代理分开的 append-only JSONL 文件。这样就支持恢复：如果会话中断，代理可以从自己的转录里重建出来。记录是每条消息 `O(1)` 的，只追加新消息，并保留前一个 UUID 的引用以维持链路连续性。
 
-### Step 15: Cleanup
+### 第 15 步：清理
 
-The `finally` block runs on normal completion, abort, or error. It is the most comprehensive cleanup sequence in the codebase:
+`finally` 块会在正常完成、abort 或出错时运行。它是代码库里最彻底的清理序列：
 
 ```typescript
 finally {
   await mcpCleanup()                              // Tear down agent-specific MCP servers
   clearSessionHooks(rootSetAppState, agentId)      // Remove agent-scoped hooks
   cleanupAgentTracking(agentId)                    // Prompt cache tracking state
-  agentToolUseContext.readFileState.clear()         // Release file state cache memory
+  agentToolUseContext.readFileState.clear()        // Release file state cache memory
   initialMessages.length = 0                        // Release fork context (GC hint)
-  unregisterPerfettoAgent(agentId)                 // Perfetto trace hierarchy
-  clearAgentTranscriptSubdir(agentId)              // Transcript subdir mapping
+  unregisterPerfettoAgent(agentId)                // Perfetto trace hierarchy
+  clearAgentTranscriptSubdir(agentId)             // Transcript subdir mapping
   rootSetAppState(prev => {                        // Remove agent's todo entries
     const { [agentId]: _removed, ...todos } = prev.todos
     return { ...prev, todos }
@@ -507,15 +507,15 @@ finally {
 }
 ```
 
-Every subsystem the agent touched during its lifetime gets cleaned up. MCP connections, hooks, cache tracking, file state, perfetto tracing, todo entries, and orphaned shell processes. The comment about "whale sessions" spawning hundreds of agents is telling -- without this cleanup, each agent would leave small leaks that accumulate into measurable memory pressure over long sessions.
+代理运行期间触碰过的每个子系统，都会在这里被清理：MCP 连接、hooks、缓存跟踪、文件状态、Perfetto tracing、todo 条目，以及孤儿 shell 进程。注释里提到“whale sessions”会生成几百个代理，这很说明问题 - 如果没有这一步，每个代理都会留下小泄漏，长会话里就会累积成明显的内存压力。
 
-The `initialMessages.length = 0` line is a manual GC hint. For fork agents, `initialMessages` contains the parent's entire conversation history. Setting the length to zero releases those references so the garbage collector can reclaim the memory. In a session with a 200K-token context that spawns five fork children, that is a megabyte of duplicated message objects per child.
+`initialMessages.length = 0` 这一行是手动 GC 提示。对 fork 代理来说，`initialMessages` 里装着父级的整段对话历史。把 length 置零就释放了这些引用，方便垃圾回收器回收内存。在一个 20 万 token 的上下文里 spawn 五个 fork 子代时，这相当于每个子代都多复制了一大块消息对象。
 
-There is a lesson here about resource management in long-running agent systems. Each of the cleanup steps addresses a different kind of leak: MCP connections (file descriptors), hooks (memory in the app state store), file state caches (in-memory file content), Perfetto registrations (tracing metadata), todo entries (reactive state keys), and shell processes (OS-level processes). An agent interacts with many subsystems during its lifetime, and each subsystem must be notified when the agent is done. The `finally` block is the single place where all these notifications happen, and the generator protocol guarantees it runs. This is why the generator-based architecture is not just a convenience -- it is a correctness requirement.
+这里能学到一条长期运行代理系统里的资源管理经验。每一个清理步骤都在处理不同类型的泄漏：MCP 连接（文件描述符）、hooks（应用状态 store 里的内存）、文件状态缓存（内存中的文件内容）、Perfetto 注册（tracing 元数据）、todo 条目（响应式状态 key）、shell 进程（操作系统级进程）。代理在生命周期里会触碰许多子系统，而每个子系统都必须在代理结束时得到通知。`finally` 块就是所有这些通知的唯一汇合点，而 generator 协议保证它一定会执行。这就是为什么 generator 架构不仅仅是方便，而是正确性要求。
 
-### The Generator Chain
+### generator 链
 
-Before examining the built-in agent types, it is worth stepping back to see the structural pattern that makes all of this work. The entire sub-agent system is built on async generators. The chain flows:
+在看内建代理类型之前，先退一步看看支撑这一切的结构模式。整个子智能体系统都建立在 async generator 上。链路是这样的：
 
 ```mermaid
 graph TD
@@ -545,77 +545,77 @@ graph TD
     end
 ```
 
-This generator-based architecture enables four critical capabilities:
+这种基于 generator 的架构带来了四个关键能力：
 
-**Streaming.** Messages flow through the system incrementally. The parent (or the async lifecycle wrapper) can observe each message as it is produced -- updating progress indicators, forwarding metrics, recording transcripts -- without buffering the entire conversation.
+**流式传输。** 消息会逐步穿过整个系统。父级（或异步生命周期包装器）可以在每条消息生成时就观察到它 - 更新进度指示器、转发指标、记录转录 - 而不必缓冲整段对话。
 
-**Cancellation.** Returning the async iterator triggers the `finally` block in `runAgent()`. The fifteen-step cleanup runs regardless of whether the agent completed normally, was aborted by the user, or threw an error. JavaScript's async generator protocol guarantees this.
+**取消。** 返回 async iterator 会触发 `runAgent()` 的 `finally` 块。不管代理是正常完成、被用户中断，还是抛错，十五步清理都会执行。JavaScript 的 async generator 协议保证了这一点。
 
-**Backgrounding.** A sync agent that is taking too long can be backgrounded mid-execution. The iterator is handed off from the foreground (where `AgentTool.call()` is iterating it) to an async context (where `runAsyncAgentLifecycle()` takes over). The agent does not restart -- it continues from where it was.
+**后台化。** 一个运行太久的同步代理可以在执行中途切到后台。iterator 会从前台（`AgentTool.call()` 正在迭代它）交给异步上下文（`runAsyncAgentLifecycle()` 接手）继续驱动。代理不会重启，只是接着原来的位置跑。
 
-**Progress tracking.** Each yielded message is an observation point. The async lifecycle wrapper uses these observation points to update the task state machine, compute progress percentages, and generate notifications when the agent completes.
+**进度跟踪。** 每一次 yield 出来的消息，都是一个观测点。异步生命周期包装器利用这些观测点更新任务状态机、计算进度百分比，并在代理完成时生成通知。
 
 ---
 
-## Built-In Agent Types
+## 内建代理类型
 
-Built-in agents are registered via `getBuiltInAgents()` in `builtInAgents.ts`. The registry is dynamic -- which agents are available depends on feature flags, GrowthBook experiments, and the session's entrypoint type. Six built-in agents ship with the system, each optimized for a specific class of work.
+内建代理通过 `builtInAgents.ts` 里的 `getBuiltInAgents()` 注册。这个注册表是动态的 - 哪些代理可用，取决于特性标志、GrowthBook 实验以及会话的入口类型。系统随附六种内建代理，每一种都针对某类具体工作做了优化。
 
-### General-Purpose
+### 通用代理
 
-The default agent when `subagent_type` is omitted and fork is not active. Full tool access, no CLAUDE.md omission, model determined by `getDefaultSubagentModel()`. Its system prompt positions it as a completion-oriented worker: "Complete the task fully -- don't gold-plate, but don't leave it half-done." It includes guidelines for search strategy (broad first, then narrow) and file creation discipline (never create files unless the task requires it).
+当 `subagent_type` 被省略，而且 fork 没有激活时，它就是默认代理。拥有完整工具访问，不省略 `CLAUDE.md`，模型由 `getDefaultSubagentModel()` 决定。它的系统提示会把它定位成一个以完成为导向的 worker：“把任务完整做完 - 不要过度包装，但也不要做一半就停。”
 
-This is the workhorse. When the model does not know what kind of agent it needs, it gets a general-purpose agent that can do everything the parent can do, minus spawning its own sub-agents. The "minus spawning" restriction is important: without it, a general-purpose child could spawn its own children, which could spawn theirs, creating an exponential fan-out that burns through API budget in seconds. The `Agent` tool is in the default disallowed list for good reason.
+这是最主要的干活角色。当模型不知道自己需要哪种代理时，就会拿到一个通用代理，它能做父级能做的一切，只是不能再生成自己的子智能体。这个“不能再生成”的限制很重要：没有它，通用子代理可能会继续生成自己的孩子，而孩子又生成孩子，结果会形成指数级扩散，几秒钟就把 API 预算烧穿。`Agent` 工具被放进默认禁用列表是有充分理由的。
 
 ### Explore
 
-A read-only search specialist. Uses Haiku (the cheapest, fastest model). Omits CLAUDE.md and git status. Has `FileEdit`, `FileWrite`, `NotebookEdit`, and `Agent` removed from its tool pool, enforced at both the tooling level and via a `=== CRITICAL: READ-ONLY MODE ===` section in its system prompt.
+一个只读搜索专员。使用 Haiku（最便宜、最快的模型）。省略 `CLAUDE.md` 和 git status。`FileEdit`、`FileWrite`、`NotebookEdit` 和 `Agent` 都会从它的工具池里移除，并且这项限制既在工具层面强制，也在系统提示里的 `=== CRITICAL: READ-ONLY MODE ===` 段落里明确说明。
 
-The Explore agent is the most aggressively optimized built-in because it is the most frequently spawned -- 34 million times per week across the fleet. It is marked as a one-shot agent (`ONE_SHOT_BUILTIN_AGENT_TYPES`), which means the agentId, SendMessage instructions, and usage trailer are skipped from its prompt, saving approximately 135 characters per invocation. At 34 million invocations, those 135 characters add up to roughly 4.6 billion characters per week of saved prompt tokens.
+Explore 是所有内建代理里优化得最激进的，因为它也是被生成得最频繁的 - 整个 fleet 每周 3400 万次。它被标记为 one-shot 代理（`ONE_SHOT_BUILTIN_AGENT_TYPES`），这意味着它的 prompt 里会跳过 agentId、SendMessage 说明和使用尾注，每次调用大约能省下 135 个字符。按每周 3400 万次算，这 135 个字符大约等于每周节省 46 亿个 prompt token。
 
-Availability is gated by the `BUILTIN_EXPLORE_PLAN_AGENTS` feature flag AND the `tengu_amber_stoat` GrowthBook experiment, which A/B tests the impact of removing these specialized agents.
+可用性由 `BUILTIN_EXPLORE_PLAN_AGENTS` 特性标志和 `tengu_amber_stoat` GrowthBook 实验共同控制，后者会 A/B 测试移除这些专门代理是否会改变用户行为。
 
 ### Plan
 
-A software architect agent. Same read-only tool set as Explore but uses `'inherit'` for its model (same capability as the parent). Its system prompt guides it through a structured four-step process: Understand Requirements, Explore Thoroughly, Design Solution, Detail the Plan. It must end with a "Critical Files for Implementation" list.
+一个软件架构师代理。和 Explore 一样，也是只读工具集，但模型用的是 `'inherit'`（也就是和父级同等能力）。它的系统提示会引导它走一个结构化的四步流程：理解需求、深入探索、设计方案、细化计划。最后必须给出一份“实施关键文件”列表。
 
-The Plan agent inherits the parent's model because architecture requires the same reasoning capability as implementation. You do not want a Haiku-class model making design decisions that an Opus-class model will have to execute. The model mismatch would produce plans that the executing agent cannot follow -- or worse, plans that sound plausible but are subtly wrong in ways that only a more capable model would catch.
+Plan 代理之所以继承父级模型，是因为架构设计需要和实现同等的推理能力。你不希望一个 Haiku 级模型来做设计决策，最后却要交给 Opus 级模型去执行。模型能力不匹配会产出那种“看起来合理，但执行起来才发现细节错了”的计划 - 有时候只有更强的模型才看得出这些错。
 
-Same availability gate as Explore (`BUILTIN_EXPLORE_PLAN_AGENTS` + `tengu_amber_stoat`).
+它的可用性门槛和 Explore 相同（`BUILTIN_EXPLORE_PLAN_AGENTS` + `tengu_amber_stoat`）。
 
 ### Verification
 
-The adversarial tester. Read-only tools, `'inherit'` model, always runs in background (`background: true`), displayed in red in the terminal. Its system prompt is the most elaborate of any built-in agent at approximately 130 lines.
+对抗式测试员。只读工具、`'inherit'` 模型，永远后台运行（`background: true`），在终端里显示为红色。它的系统提示是所有内建代理里最长的，大约 130 行。
 
-What makes the Verification agent interesting is its anti-avoidance programming. The prompt explicitly lists excuses the model might reach for and instructs it to "recognize them and do the opposite." Every check must include a "Command run" block with actual terminal output -- no hand-waving, no "this should work." The agent must include at least one adversarial probe (concurrency, boundary, idempotency, orphan cleanup). And before reporting a failure, it must check whether the behavior is intentional or handled elsewhere.
+Verification 代理最有意思的地方在于它的“反规避”编程。提示会明确列出模型可能会找的借口，并要求它“识别它们，然后做相反的事”。每一次检查都必须包含一个“Command run” 块，里面要有真实的终端输出 - 不能空口说“应该可以”。它还必须至少包含一次对抗式探测（并发、边界、幂等性、孤儿清理）。在报告失败之前，还要先检查这个行为是不是本来就被设计成这样，或者已经在别的地方处理了。
 
-The `criticalSystemReminder_EXPERIMENTAL` field injects a reminder after every tool result, reinforcing that this is verification-only. This is a guardrail against the model drifting from "verify" to "fix" -- a tendency that would undermine the entire purpose of an independent verification pass. Language models have a strong inclination to be helpful, and "helpful" in most contexts means "fix the problem." The Verification agent's entire value proposition depends on resisting that inclination.
+`criticalSystemReminder_EXPERIMENTAL` 字段会在每个工具结果之后注入一条提醒，强化“这里只做验证”的边界。这是防止模型从“验证”滑向“修复”的护栏 - 而这种滑向会破坏独立验证的意义。语言模型天生倾向于“有帮助”，而在大多数场景里，“有帮助”就意味着“顺手修掉问题”。Verification 代理的价值，恰恰建立在压住这种倾向上。
 
-The `background: true` flag means the Verification agent always runs asynchronously. The parent does not wait for verification results -- it continues working while the verifier probes in the background. When the verifier finishes, a notification appears with the results. This mirrors how human code review works: the developer does not stop coding while the reviewer reads their PR.
+`background: true` 说明 Verification 代理永远异步运行。父级不会等待验证结果，而是边做别的边让验证器在后台探测。验证器完成后，会弹出通知给出结果。这和人类 code review 的工作方式很像：开发者不会因为 reviewer 在看 PR 就停下编码。
 
-Availability is gated by the `VERIFICATION_AGENT` feature flag AND the `tengu_hive_evidence` GrowthBook experiment.
+可用性由 `VERIFICATION_AGENT` 特性标志和 `tengu_hive_evidence` GrowthBook 实验控制。
 
 ### Claude Code Guide
 
-A documentation-fetching agent for questions about Claude Code itself, the Claude Agent SDK, and the Claude API. Uses Haiku, runs with `dontAsk` permission mode (no user prompts needed -- it only reads documentation), and has two hardcoded documentation URLs.
+一个用于回答 Claude Code 本身、Claude Agent SDK 以及 Claude API 相关问题的文档抓取代理。使用 Haiku，权限模式是 `dontAsk`（不需要用户提示 - 它只读文档），并且硬编码了两个文档 URL。
 
-Its `getSystemPrompt()` is unique because it receives the `toolUseContext` and dynamically includes context about the project's custom skills, custom agents, configured MCP servers, plugin commands, and user settings. This lets it answer "how do I configure X?" by knowing what is already configured.
+它的 `getSystemPrompt()` 很特别，因为它会接收 `toolUseContext`，并动态注入项目里自定义 skills、自定义代理、已配置 MCP server、插件命令和用户设置的上下文。这样它就能根据“现在已经配了什么”来回答“我该怎么配置 X？”。
 
-Excluded when the entrypoint is SDK (TypeScript, Python, or CLI), since SDK users are not asking Claude Code how to use Claude Code. They are building their own tools on top of it.
+如果入口是 SDK（TypeScript、Python 或 CLI），它会被排除，因为 SDK 用户不是在问 Claude Code 怎么用 Claude Code，而是在基于它构建自己的工具。
 
-The Guide agent is an interesting case study in agent design because it is the only built-in agent whose system prompt is dynamic in a way that depends on the user's project. It needs to know what is configured to answer "how do I configure X?" effectively. This makes its `getSystemPrompt()` function more complex than the others, but the trade-off is worth it -- a documentation agent that does not know what the user has already set up gives worse answers than one that does.
+Guide 代理是一个很好的 agent 设计案例，因为它是唯一一个系统提示会根据用户项目动态变化的内建代理。它必须知道当前已经配置了什么，才能有效回答“我该怎么配置 X？”。这让它的 `getSystemPrompt()` 比其他代理更复杂，但这个权衡是值得的 - 一个不知道用户已经配了什么的文档代理，只会比知道这些信息的代理回答得更差。
 
 ### Statusline Setup
 
-A specialized agent for configuring the terminal status line. Uses Sonnet, displayed in orange, limited to `Read` and `Edit` tools only. Knows how to convert shell PS1 escape sequences to shell commands, write to `~/.claude/settings.json`, and handle the `statusLine` command's JSON input format.
+一个专门用来配置终端状态行的代理。使用 Sonnet，终端里显示为橙色，工具只允许 `Read` 和 `Edit`。它知道如何把 shell 的 PS1 转义序列转换成 shell 命令、如何写入 `~/.claude/settings.json`，以及如何处理 `statusLine` 命令的 JSON 输入格式。
 
-This is the most narrowly-scoped built-in agent -- it exists because status line configuration is a self-contained domain with specific formatting rules that would clutter a general-purpose agent's context. Always available, no feature gate.
+这是最窄域的内建代理 - 它存在，是因为状态行配置本身就是一个独立领域，带着一套具体格式规则；把这些规则塞进一个通用代理，只会污染上下文。它始终可用，没有特性门槛。
 
-The Statusline Setup agent illustrates an important principle: **sometimes a specialized agent is better than a general-purpose agent with more context.** A general-purpose agent given the status line documentation as context would probably configure it correctly. But it would also be more expensive (bigger model), slower (more context to process), and more likely to get confused by the interaction between status line syntax and the task at hand. A dedicated Sonnet agent with Read and Edit tools and a focused system prompt does the job faster, cheaper, and more reliably.
+Statusline Setup 体现了一个重要原则：**有时候，一个专门代理，比一个上下文更多的通用代理更好。** 如果把状态行文档塞给一个通用代理，它大概率也能配对。但它会更贵（因为模型更大）、更慢（因为要处理更多上下文），也更容易被状态行语法和任务本身的交互搞糊涂。一个专门的 Sonnet 代理，配上 `Read` 和 `Edit`，再加一个聚焦的系统提示，完成得更快、更便宜，也更可靠。
 
-### The Worker Agent (Coordinator Mode)
+### 工作者代理（Coordinator 模式）
 
-Not in the `built-in/` directory but loaded dynamically when coordinator mode is active:
+它不在 `built-in/` 目录里，而是在 coordinator 模式启用时动态加载：
 
 ```typescript
 if (isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE)) {
@@ -624,19 +624,19 @@ if (isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE)) {
 }
 ```
 
-The worker agent replaces all standard built-in agents in coordinator mode. It has a single type `"worker"` and full tool access. This simplification is deliberate -- when a coordinator is orchestrating workers, the coordinator decides what each worker does. The worker does not need the specialization of Explore or Plan; it needs the flexibility to do whatever the coordinator assigns.
+在 coordinator 模式下，worker 代理会替换掉所有标准内建代理。它只有一个类型 `"worker"`，并拥有完整工具访问。这个简化是刻意的 - 当 coordinator 在编排 worker 时，具体每个 worker 做什么由 coordinator 决定。worker 不需要 Explore 或 Plan 那样的专门化，它需要的是足够灵活，能执行 coordinator 分配给它的任何任务。
 
 ---
 
-## Fork Agents
+## Fork 代理
 
-Fork agents -- where the child inherits the parent's full conversation history, system prompt, and tool array for prompt cache exploitation -- are the subject of Chapter 9. The fork path triggers when the model omits `subagent_type` from the Agent tool call and the fork experiment is active. Every design decision in the fork system traces back to a single goal: byte-identical API request prefixes across parallel children, enabling 90% cache discounts on shared context.
+Fork 代理 - 也就是子代继承父级完整对话历史、系统提示和工具数组，用来榨取 prompt cache - 是第 9 章的主题。fork 路径会在模型调用 `Agent` 工具时省略 `subagent_type`，并且 fork 实验开启时触发。fork 系统里的每一个设计决策，最终都指向同一个目标：让并行子代拥有字节完全一致的 API 请求前缀，从而把共享上下文的缓存折扣做到 90%。
 
 ---
 
-## Agent Definitions from Frontmatter
+## 来自 frontmatter 的代理定义
 
-Users and plugins can define custom agents by placing markdown files in `.claude/agents/`. The frontmatter schema supports the full range of agent configuration:
+用户和插件可以通过在 `.claude/agents/` 里放置 markdown 文件来定义自定义代理。frontmatter schema 支持完整的代理配置范围：
 
 ```yaml
 ---
@@ -672,82 +672,82 @@ effort: high
 You are a specialized agent for...
 ```
 
-The markdown body becomes the agent's system prompt. The frontmatter fields map directly to the `AgentDefinition` interface that `runAgent()` consumes. The loading pipeline in `loadAgentsDir.ts` validates the frontmatter against `AgentJsonSchema`, resolves the source (user, plugin, or policy), and registers the agent in the available agents list.
+markdown 正文会变成代理的 system prompt。frontmatter 字段会直接映射到 `runAgent()` 消费的 `AgentDefinition` 接口。`loadAgentsDir.ts` 里的加载流程会用 `AgentJsonSchema` 校验 frontmatter，解析来源（用户、插件或 policy），然后把代理注册进可用代理列表。
 
-Four sources of agent definitions exist, in priority order:
+代理定义有四个来源，按优先级排序：
 
-1. **Built-in agents** -- hardcoded in TypeScript, always available (subject to feature gates)
-2. **User agents** -- markdown files in `.claude/agents/`
-3. **Plugin agents** -- loaded via `loadPluginAgents()`
-4. **Policy agents** -- loaded via organizational policy settings
+1. **内建代理** - 用 TypeScript 硬编码，始终可用（受特性门控影响）
+2. **用户代理** - `.claude/agents/` 里的 markdown 文件
+3. **插件代理** - 通过 `loadPluginAgents()` 加载
+4. **策略代理** - 从组织策略设置里加载
 
-When the model calls `Agent` with a `subagent_type`, the system resolves the name against this combined list, filtering by permission rules (deny rules for `Agent(AgentName)`) and by `allowedAgentTypes` from the tool spec. If the requested agent type is not found or is denied, the tool call fails with an error.
+当模型用 `subagent_type` 调用 `Agent` 时，系统会把名字在这个合并后的列表里解析出来，并依据权限规则（针对 `Agent(AgentName)` 的 deny 规则）和工具规范里的 `allowedAgentTypes` 做过滤。如果请求的代理类型找不到，或者被拒绝了，工具调用就会报错。
 
-This design means that organizations can ship custom agents via plugins (a code review agent, a security audit agent, a deployment agent) and have them appear seamlessly alongside the built-in agents. The model sees them in the same list, with the same interface, and delegates to them the same way.
+这意味着组织可以通过插件发布自定义代理（代码审查代理、安全审计代理、部署代理），它们会无缝地出现在内建代理旁边。模型看到的是同一份列表、同一个接口，委派方式也完全一样。
 
-The power of frontmatter-defined agents is that they require zero TypeScript. A team lead who wants a "PR review" agent writes a markdown file with the right frontmatter, drops it in `.claude/agents/`, and it appears in every team member's agent list on their next session. The system prompt is the markdown body. The tool restrictions, model preference, and permission mode are declared in YAML. The `runAgent()` lifecycle handles everything else -- the same fifteen steps, the same cleanup, the same isolation guarantees.
+frontmatter 代理最强的地方在于它们完全不需要 TypeScript。一个想要“PR review”代理的团队负责人，只要写一个带正确 frontmatter 的 markdown 文件，放进 `.claude/agents/`，它就会在每个团队成员下次会话时出现在代理列表里。system prompt 就是 markdown 正文。工具限制、模型偏好和权限模式都写在 YAML 里。剩下的事情都交给 `runAgent()` 生命周期，也就是同样的十五步、同样的清理、同样的隔离保证。
 
-This also means that agent definitions are version-controlled alongside the codebase. A repository can ship agents tailored to its architecture, conventions, and tooling. The agents evolve with the code. When the team adopts a new testing framework, the verification agent's prompt is updated in the same commit that adds the framework dependency.
+这也意味着代理定义是和代码库一起版本控制的。仓库可以带着适配自身架构、约定和工具链的代理一起发布。代理会跟着代码一起演进。当团队采纳新的测试框架时，验证代理的 prompt 会和新增依赖的提交放在同一个 commit 里更新。
 
-There is one important security consideration: the trust boundary. User agents (from `.claude/agents/`) are user-controlled -- their hooks, MCP servers, and tool configurations are subject to `strictPluginOnlyCustomization` restrictions when those policies are active. Plugin agents and policy agents are admin-trusted and bypass these restrictions. Built-in agents are part of the Claude Code binary itself. The system tracks the `source` of each agent definition precisely so that security policies can distinguish between "the user wrote this" and "the organization approved this."
+这里有一个重要的安全考量：信任边界。用户代理（来自 `.claude/agents/`）是用户控制的 - 它们的 hooks、MCP server 和工具配置，在 `strictPluginOnlyCustomization` 策略开启时都会受到限制。插件代理和策略代理则是管理员信任的，可以绕过这些限制。内建代理则属于 Claude Code 二进制本身。系统会精确追踪每个代理定义的 `source`，这样安全策略才能区分“这是用户写的”还是“这是组织批准的”。
 
-The `source` field is not just metadata -- it gates real behavior. When a plugin-only policy is active for MCP, user agent frontmatter that declares MCP servers is silently skipped (the MCP connections are not established). When a plugin-only policy is active for hooks, user agent frontmatter hooks are not registered. The agent still runs -- it just runs without the untrusted extensions. This is a principle of graceful degradation: the agent is useful even when its full capabilities are restricted by policy.
+`source` 字段不只是元数据 - 它会真正控制行为。当 MCP 开启 plugin-only 策略时，用户代理 frontmatter 里声明的 MCP server 会被悄悄跳过（不会建立这些 MCP 连接）。当 hooks 开启 plugin-only 策略时，用户代理 frontmatter 里的 hooks 也不会注册。代理仍然会运行 - 只是少了那些不受信任的扩展。这就是优雅降级：即使它的全部能力被策略限制，代理依然有用。
 
 ---
 
-## Apply This: Designing Agent Types
+## 应用到这里：设计代理类型
 
-The built-in agents demonstrate a pattern language for agent design. If you are building a system that spawns sub-agents -- whether using Claude Code's AgentTool directly or designing your own multi-agent architecture -- the design space breaks down into five dimensions.
+内建代理展示了一套代理设计的模式语言。如果你正在构建一个会生成子智能体的系统 - 不管是直接用 Claude Code 的 AgentTool，还是自己设计多智能体架构 - 设计空间其实可以拆成五个维度。
 
-### Dimension 1: What Can It See?
+### 维度 1：它能看到什么？
 
-The combination of `omitClaudeMd`, git status stripping, and skill preloading controls the agent's awareness. Read-only agents see less (they do not need project conventions). Specialized agents see more (preloaded skills inject domain knowledge).
+`omitClaudeMd`、git status 剥离和 skill 预加载的组合，决定了代理的认知范围。只读代理看得更少（它们不需要项目约定）。专门代理看得更多（预加载的 skills 会注入领域知识）。
 
-The key insight is that context is not free. Every token in the system prompt, user context, or conversation history costs money and displaces working memory. Claude Code strips CLAUDE.md from Explore agents not because those instructions are harmful, but because they are irrelevant -- and irrelevance at 34 million spawns per week becomes a line item on the infrastructure bill. When designing your own agent types, ask: "What does this agent need to know to do its job?" and strip everything else.
+关键洞见是上下文不是免费的。system prompt、用户上下文和对话历史里的每一个 token 都要花钱，而且会挤占工作记忆。Claude Code 从 Explore 代理里剥离 CLAUDE.md，不是因为这些指令有害，而是因为它们无关 - 而在每周 3400 万次 spawn 的规模下，无关信息会直接变成基础设施账单的一部分。设计你自己的代理类型时，先问：“这个代理为了完成工作，到底需要知道什么？”然后把别的都删掉。
 
-### Dimension 2: What Can It Do?
+### 维度 2：它能做什么？
 
-The `tools` and `disallowedTools` fields set hard boundaries. The Verification agent cannot edit files. The Explore agent cannot write anything. The General-Purpose agent can do everything except spawn sub-agents of its own.
+`tools` 和 `disallowedTools` 字段划出了硬边界。Verification 代理不能改文件。Explore 代理不能写任何东西。通用代理除了不能自己生成子代理之外，其他都能做。
 
-Tool restrictions serve two purposes: **safety** (the Verification agent cannot accidentally "fix" what it finds, preserving its independence) and **focus** (an agent with fewer tools spends less time deciding which tool to use). The pattern of combining tool-level restrictions with system prompt guidance (Explore's `=== CRITICAL: READ-ONLY MODE ===`) is defense in depth -- the tools enforce the boundary mechanically, and the prompt explains *why* the boundary exists so the model does not waste turns trying to work around it.
+工具限制有两个目的：**安全**（Verification 代理不会在发现问题时顺手“修掉”它，从而保持独立性）和**聚焦**（工具越少，代理在选工具上花的时间越少）。把工具级限制和系统提示指导（比如 Explore 的 `=== CRITICAL: READ-ONLY MODE ===`）结合起来，就是纵深防御 - 工具层面机械地约束边界，prompt 层面解释边界存在的原因，这样模型就不会浪费轮次试图绕过去。
 
-### Dimension 3: How Does It Interact with the User?
+### 维度 3：它怎么和用户交互？
 
-The `permissionMode` and `canShowPermissionPrompts` settings determine whether the agent asks for permission, auto-denies, or bubbles prompts to the parent's terminal. Background agents that cannot interrupt the user must either work within pre-approved boundaries or bubble.
+`permissionMode` 和 `canShowPermissionPrompts` 决定代理会不会请求权限、自动拒绝，还是把提示上浮到父级终端。不能打断用户的后台代理，要么在预批准边界内工作，要么走 bubble。
 
-The `awaitAutomatedChecksBeforeDialog` setting is a nuance worth understanding. Background agents that *can* show prompts (bubble mode) wait for the classifier and permission hooks to run before interrupting the user. This means the user is only interrupted for genuinely ambiguous permissions -- not for things the automated system could have resolved. In a multi-agent system where five background agents are running simultaneously, this is the difference between a usable interface and a permission-prompt barrage.
+`awaitAutomatedChecksBeforeDialog` 是个值得理解的细节。能弹窗的后台代理（bubble 模式）会先等分类器和权限 hooks 跑完，再去打扰用户。这意味着只有真正模糊的权限才会打断用户，而不是自动化系统本可以自己解决的事情。在五个后台代理同时运行的多智能体系统里，这个差别就是“还能用的界面”和“权限弹窗轰炸”之间的区别。
 
-### Dimension 4: How Does It Relate to the Parent?
+### 维度 4：它和父级是什么关系？
 
-Sync agents block the parent and share its state. Async agents run independently with their own abort controller. Fork agents inherit the full conversation context. The choice shapes both the user experience (does the parent wait?) and the system behavior (does Escape kill the child?).
+同步代理会阻塞父级并共享状态。异步代理会独立运行，拥有自己的 abort controller。fork 代理会继承完整对话上下文。这个选择同时决定用户体验（父级要不要等待）和系统行为（Escape 会不会把子代也杀掉）。
 
-The abort controller decision in Step 8 crystallizes this: sync agents share the parent's controller (Escape kills both), async agents get their own (Escape leaves them running). Fork agents go further -- they inherit the parent's system prompt, tool array, and message history to maximize prompt cache sharing. Each relationship type has a clear use case: sync for sequential delegation ("do this then I'll continue"), async for parallel work ("do this while I do something else"), and fork for context-heavy delegation ("you know everything I know, now go handle this part").
+第 8 步里的 abort controller 决策把这一点说得很清楚：同步代理共享父级 controller（Escape 两个都杀），异步代理拿自己的 controller（Escape 不影响它们）。fork 代理更进一步 - 它们会继承父级的系统提示、工具数组和消息历史，以最大化 prompt cache 共享。每种关系类型都有明确用处：同步适合顺序委派（“先做这个，然后我继续”），异步适合并行工作（“你去做这个，我去做别的”），fork 适合上下文重度委派（“你知道我知道的一切，现在去处理这部分”）。
 
-### Dimension 5: How Expensive Is It?
+### 维度 5：它有多贵？
 
-The model choice, thinking config, and context size all contribute to cost. Haiku for cheap read-only work. Sonnet for moderate tasks. Inherit-from-parent for tasks requiring the parent's reasoning capability. Thinking is disabled for non-fork agents to control output token costs -- the parent pays for reasoning; the children execute.
+模型选择、thinking 配置和上下文大小都会影响成本。Haiku 适合廉价的只读工作。Sonnet 适合中等任务。inherit-from-parent 适合需要父级推理能力的任务。对非 fork 代理关闭 thinking，是为了控制输出 token 成本 - 父级付推理的钱，子代负责执行。
 
-The economic dimension is often an afterthought in multi-agent system design, but it is central to Claude Code's architecture. An Explore agent that used Opus instead of Haiku would work fine for any individual invocation. But at 34 million invocations per week, the model choice is a multiplicative cost factor. The one-shot optimization that saves 135 characters per Explore invocation translates to 4.6 billion characters per week of saved prompt tokens. These are not micro-optimizations -- they are the difference between a viable product and an unaffordable one.
+在多智能体系统设计里，经济维度经常被忽略，但它在 Claude Code 的架构里却是核心。如果 Explore 代理不用 Haiku 而改用 Opus，单次调用也许完全没问题。但每周 3400 万次调用时，模型选择就是一个乘法级成本因子。One-shot 优化为每次 Explore 调用省下 135 个字符，换算下来就是每周节省约 46 亿个 prompt token。这不是微优化 - 这是产品能不能活下去的分界线。
 
-### The Unified Lifecycle
+### 统一生命周期
 
-The `runAgent()` lifecycle implements all five dimensions through its fifteen steps, assembling a unique execution environment for each agent type from the same set of building blocks. The result is a system where spawning a sub-agent is not "run another copy of the parent." It is the creation of a precisely-scoped, resource-controlled, isolated execution context -- tailored to the work at hand, and cleaned up completely when the work is done.
+`runAgent()` 生命周期通过十五个步骤实现了这五个维度，用同一组积木，为每种代理类型搭建唯一的执行环境。结果就是：生成子智能体并不是“再跑一份父级”。它是在创建一个精确定义范围、受资源控制、彼此隔离的执行上下文 - 按任务量身定制，工作完成后也会被彻底清理。
 
-The architectural elegance is in the uniformity. Whether the agent is a Haiku-powered read-only searcher or an Opus-powered fork child with full tool access and bubble permissions, it flows through the same fifteen steps. The steps do not branch based on agent type -- they parameterize. Model resolution picks the right model. Context preparation picks the right file state. Permission isolation picks the right mode. The agent type is not encoded in control flow; it is encoded in configuration. And that is what makes the system extensible: adding a new agent type means writing a definition, not modifying the lifecycle.
+架构上的优雅之处在于统一性。无论代理是一个 Haiku 驱动的只读搜索器，还是一个 Opus 驱动、拥有完整工具访问和 bubble 权限的 fork 子代，它都走同样的十五步。步骤不会根据代理类型分支 - 它们只会参数化。模型解析挑选合适模型，上下文准备挑选合适的文件状态，权限隔离挑选合适模式。代理类型不是写在控制流里的，而是写在配置里的。这就是系统可扩展的原因：新增一种代理类型，写一个定义就够了，不需要改生命周期。
 
-### The Design Space Summarized
+### 设计空间总结
 
-The six built-in agents cover a spectrum:
+六种内建代理覆盖了一个光谱：
 
-| Agent | Model | Tools | Context | Sync/Async | Purpose |
-|-------|-------|-------|---------|------------|---------|
-| General-Purpose | Default | All | Full | Either | Workhorse delegation |
-| Explore | Haiku | Read-only | Stripped | Sync | Fast, cheap search |
-| Plan | Inherit | Read-only | Stripped | Sync | Architecture design |
-| Verification | Inherit | Read-only | Full | Always async | Adversarial testing |
-| Guide | Haiku | Read + Web | Dynamic | Sync | Documentation lookup |
-| Statusline | Sonnet | Read + Edit | Minimal | Sync | Config task |
+| 代理 | 模型 | 工具 | 上下文 | 同步/异步 | 目的 |
+|------|------|------|--------|-----------|------|
+| 通用代理 | 默认 | 全部 | 完整 | 二者皆可 | 主力委派 |
+| Explore | Haiku | 只读 | 精简 | 同步 | 快速、低成本搜索 |
+| Plan | Inherit | 只读 | 精简 | 同步 | 架构设计 |
+| Verification | Inherit | 只读 | 完整 | 永远异步 | 对抗式测试 |
+| Guide | Haiku | 读 + Web | 动态 | 同步 | 文档检索 |
+| Statusline | Sonnet | 读 + 写 | 最小 | 同步 | 配置任务 |
 
-No two agents make the same choices across all five dimensions. Each is optimized for its specific use case. And the `runAgent()` lifecycle handles all of them through the same fifteen steps, parameterized by the agent definition. This is the power of the architecture: the lifecycle is a universal machine, and the agent definitions are the programs that run on it.
+没有两个代理会在这五个维度上做出完全相同的选择。每一个都针对自己的使用场景做了优化。而 `runAgent()` 生命周期通过同样的十五步，按照代理定义把它们全部接住。这就是架构的力量：生命周期是通用机器，代理定义是运行在上面的程序。
 
-The next chapter examines fork agents in depth -- the prompt cache exploitation mechanism that makes parallel delegation economically viable. Chapter 10 then follows with the orchestration layer: how async agents report progress through the task state machine, how the parent retrieves results, and how the coordinator pattern orchestrates dozens of agents working toward a single goal. If this chapter was about *creating* agents, Chapter 9 is about making them cheap, and Chapter 10 is about *managing* them.
+下一章会深入讲 fork 代理 - 也就是让并行委派在经济上可行的 prompt cache 榨取机制。第 10 章则会继续讲编排层：异步代理如何通过任务状态机上报进度、父级如何取回结果，以及 coordinator 模式如何编排几十个朝同一目标工作的代理。如果说本章讲的是*创建*代理，第 9 章讲的是如何让它们便宜，而第 10 章讲的是如何*管理*它们。

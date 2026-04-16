@@ -285,7 +285,7 @@ export default function KairosMode({ className }: Props) {
 
         {renderColumn(
           "KAIROS",
-          "Deferred, batch-consolidated",
+          "延后写入，批量归并",
           kairosSteps,
           colors.kairosAccent,
           moonIcon,

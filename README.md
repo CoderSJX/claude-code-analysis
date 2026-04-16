@@ -1,133 +1,133 @@
 # Claude Code from Source
 
-**Architecture, Patterns & Internals of Anthropic's AI Coding Agent**
+**Anthropic 的 AI 编码代理：架构、模式与内部机制**
 
 <p align="center">
-  <img src="./web/public/cover.jpg" alt="Claude Code from Source — Book Cover" width="400" />
+  <img src="./web/public/cover.jpg" alt="《Claude Code from Source》封面" width="400" />
   <br/><br/>
-  <a href="https://claude-code-from-source.com"><strong>Read online at claude-code-from-source.com</strong></a>
+  <a href="https://claude-code-from-source.com"><strong>在线阅读 claude-code-from-source.com</strong></a>
 </p>
 
 ---
 
-> **This repository is purely educational.** It contains no source code from Claude Code — not a single line. Every code block is original pseudocode written to illustrate architectural patterns. The goal is to help engineers understand how production AI agents are built, not to reproduce or redistribute proprietary software.
+> **本仓库仅用于教学。** 它不包含 Claude Code 的任何源代码，哪怕一行也没有。所有代码块都是原创伪代码，用来说明架构模式。目标是帮助工程师理解生产级 AI 代理是如何构建的，而不是复制或传播专有软件。
 
 ---
 
-When Anthropic shipped Claude Code on npm, the `.js.map` source maps contained a `sourcesContent` field with the full original TypeScript. This book is the result of studying that architecture and distilling the patterns, trade-offs, and design decisions into a technical narrative that any engineer can learn from.
+当 Anthropic 在 npm 上发布 Claude Code 时，`.js.map` 源码映射里包含了 `sourcesContent` 字段，其中带有完整的原始 TypeScript。此书正是基于这些内容，对其架构进行研究后，把其中的模式、取舍和设计决策提炼成一套任何工程师都能学习的技术叙述。
 
-**18 chapters across 7 parts.** ~400 pages in print equivalent.
+**全书共 18 章，分为 7 个部分。** 印刷等价约 400 页。
 
-Every chapter has layered depth: a narrative flow for technical leaders, deep-dive sections for implementers, and an **"Apply This"** closing that extracts transferable patterns you can steal for your own systems. Diagrams use [Mermaid](https://mermaid.js.org/) and render natively on GitHub.
-
----
-
-## Who This Is For
-
-- **Senior engineers building agentic systems** — steal the patterns, understand the trade-offs, implement in your own stack
-- **Technical leaders evaluating architectures** — follow the narrative without reading every code block
-- **Anyone curious about how production AI tools actually work** under the hood
+每一章都有分层深度：面向技术负责人的叙述主线、面向实现者的深挖部分，以及一个 **“应用到实践中”** 的结尾，用来提炼可迁移的模式，方便你直接拿去改造自己的系统。图示使用 [Mermaid](https://mermaid.js.org/) 绘制，并可在 GitHub 上原生渲染。
 
 ---
 
-## Table of Contents
+## 适合谁读
 
-### Part I: Foundations
-*Before the agent can think, the process must exist.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 1 | [The Architecture of an AI Agent](./book/ch01-architecture.md) | The 6 key abstractions, data flow, permission system, build system |
-| 2 | [Starting Fast — The Bootstrap Pipeline](./book/ch02-bootstrap.md) | 5-phase init, module-level I/O parallelism, trust boundary |
-| 3 | [State — The Two-Tier Architecture](./book/ch03-state.md) | Bootstrap singleton, AppState store, sticky latches, cost tracking |
-| 4 | [Talking to Claude — The API Layer](./book/ch04-api-layer.md) | Multi-provider client, prompt cache, streaming, error recovery |
-
-### Part II: The Core Loop
-*The heartbeat of the agent: stream, act, observe, repeat.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 5 | [The Agent Loop](./book/ch05-agent-loop.md) | query.ts deep dive, 4-layer compression, error recovery, token budgets |
-| 6 | [Tools — From Definition to Execution](./book/ch06-tools.md) | Tool interface, 14-step pipeline, permission system |
-| 7 | [Concurrent Tool Execution](./book/ch07-concurrency.md) | Partition algorithm, streaming executor, speculative execution |
-
-### Part III: Multi-Agent Orchestration
-*One agent is powerful. Many agents working together are transformative.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 8 | [Spawning Sub-Agents](./book/ch08-sub-agents.md) | AgentTool, 15-step runAgent lifecycle, built-in agent types |
-| 9 | [Fork Agents and the Prompt Cache](./book/ch09-fork-agents.md) | Byte-identical prefix trick, cache sharing, cost optimization |
-| 10 | [Tasks, Coordination, and Swarms](./book/ch10-coordination.md) | Task state machine, coordinator mode, swarm messaging |
-
-### Part IV: Persistence and Intelligence
-*An agent without memory makes the same mistakes forever.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 11 | [Memory — Learning Across Conversations](./book/ch11-memory.md) | File-based memory, 4-type taxonomy, LLM recall, staleness |
-| 12 | [Extensibility — Skills and Hooks](./book/ch12-extensibility.md) | Two-phase skill loading, lifecycle hooks, snapshot security |
-
-### Part V: The Interface
-*Everything the user sees passes through this layer.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 13 | [The Terminal UI](./book/ch13-terminal-ui.md) | Custom Ink fork, rendering pipeline, double-buffer, pools |
-| 14 | [Input and Interaction](./book/ch14-input-interaction.md) | Key parsing, keybindings, chord support, vim mode |
-
-### Part VI: Connectivity
-*The agent reaches beyond localhost.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 15 | [MCP — The Universal Tool Protocol](./book/ch15-mcp.md) | 8 transports, OAuth for MCP, tool wrapping |
-| 16 | [Remote Control and Cloud Execution](./book/ch16-remote.md) | Bridge v1/v2, CCR, upstream proxy |
-
-### Part VII: Performance Engineering
-*Making it all fast enough that humans don't notice the machinery.*
-
-| # | Chapter | What You'll Learn |
-|---|---------|-------------------|
-| 17 | [Performance — Every Millisecond and Token Counts](./book/ch17-performance.md) | Startup, context window, prompt cache, rendering, search |
-| 18 | [Epilogue — What We Learned](./book/ch18-epilogue.md) | The 5 architectural bets, what transfers, where agents are heading |
+- **构建 agentic 系统的资深工程师** - 借鉴这些模式，理解取舍，并在自己的技术栈里实现
+- **评估架构的技术负责人** - 即使不看每段代码，也能跟着叙事理解全貌
+- **任何想了解生产级 AI 工具底层如何运作的人**
 
 ---
 
-## The 10 Patterns That Make It Work
+## 目录
 
-If you read nothing else:
+### 第一部分：基础
+*在代理开始思考之前，进程必须先存在。*
 
-1. **AsyncGenerator as agent loop** — yields Messages, typed Terminal return, natural backpressure and cancellation
-2. **Speculative tool execution** — start read-only tools during model streaming, before the response completes
-3. **Concurrent-safe batching** — partition tools by safety, run reads in parallel, serialize writes
-4. **Fork agents for cache sharing** — parallel children share byte-identical prompt prefixes, saving ~95% input tokens
-5. **4-layer context compression** — snip, microcompact, collapse, autocompact — each lighter than the next
-6. **File-based memory with LLM recall** — Sonnet side-query selects relevant memories, not keyword matching
-7. **Two-phase skill loading** — frontmatter only at startup, full content on invocation
-8. **Sticky latches for cache stability** — once a beta header is sent, never unset mid-session
-9. **Slot reservation** — 8K default output cap, escalate to 64K on hit (saves context in 99% of requests)
-10. **Hook config snapshot** — freeze at startup to prevent runtime injection attacks
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 1 | [AI 代理的架构](./book/ch01-architecture.md) | 6 个关键抽象、数据流、权限系统、构建系统 |
+| 2 | [快速启动 - 引导管线](./book/ch02-bootstrap.md) | 5 阶段初始化、模块级 I/O 并行、信任边界 |
+| 3 | [状态 - 双层架构](./book/ch03-state.md) | 引导单例、AppState 存储、粘性锁存器、成本跟踪 |
+| 4 | [与 Claude 对话 - API 层](./book/ch04-api-layer.md) | 多提供方客户端、提示缓存、流式传输、错误恢复 |
+
+### 第二部分：核心循环
+*代理的心跳：流式输出、执行、观察、重复。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 5 | [代理循环](./book/ch05-agent-loop.md) | `query.ts` 深挖、4 层压缩、错误恢复、token 预算 |
+| 6 | [工具 - 从定义到执行](./book/ch06-tools.md) | Tool 接口、14 步管线、权限系统 |
+| 7 | [并发工具执行](./book/ch07-concurrency.md) | 分区算法、流式执行器、投机执行 |
+
+### 第三部分：多代理编排
+*一个代理很强大。多个代理协同工作，则会产生变革性效果。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 8 | [生成子代理](./book/ch08-sub-agents.md) | AgentTool、15 步 `runAgent` 生命周期、内置代理类型 |
+| 9 | [Fork 代理与提示缓存](./book/ch09-fork-agents.md) | 字节级相同前缀技巧、缓存共享、成本优化 |
+| 10 | [任务、协调与群体](./book/ch10-coordination.md) | 任务状态机、协调器模式、群体消息传递 |
+
+### 第四部分：持久化与智能
+*没有记忆的代理，会永远重复同样的错误。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 11 | [记忆 - 跨会话学习](./book/ch11-memory.md) | 基于文件的记忆、4 类分类法、LLM 回忆、陈旧性 |
+| 12 | [可扩展性 - Skills 与 Hooks](./book/ch12-extensibility.md) | 两阶段技能加载、生命周期 hooks、快照安全 |
+
+### 第五部分：界面
+*用户看到的一切，都要经过这一层。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 13 | [终端 UI](./book/ch13-terminal-ui.md) | 自定义 Ink 分支、渲染管线、双缓冲、对象池 |
+| 14 | [输入与交互](./book/ch14-input-interaction.md) | 按键解析、快捷键、组合键支持、vim 模式 |
+
+### 第六部分：连接能力
+*代理触及的不只是 localhost。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 15 | [MCP - 通用工具协议](./book/ch15-mcp.md) | 8 种传输、MCP 的 OAuth、工具包装 |
+| 16 | [远程控制与云端执行](./book/ch16-remote.md) | Bridge v1/v2、CCR、上游代理 |
+
+### 第七部分：性能工程
+*要把一切加速到足以让人感觉不到机器。*
+
+| # | 章节 | 你将学到什么 |
+|---|---------|-------------------|
+| 17 | [性能 - 每一毫秒和每一个 token 都重要](./book/ch17-performance.md) | 启动、上下文窗口、提示缓存、渲染、搜索 |
+| 18 | [尾声 - 我们学到了什么](./book/ch18-epilogue.md) | 5 个架构赌注、哪些能迁移、代理正在走向何方 |
 
 ---
 
-## How This Book Was Made
+## 让它运转的 10 个模式
 
-The source was extracted from npm source maps. 36 AI agents analyzed nearly two thousand TypeScript files in four phases:
+如果你只读这一节：
 
-1. **Exploration**: 6 parallel agents read every file in the source tree
-2. **Analysis**: 12 agents wrote 494KB of raw technical documentation
-3. **Writing**: 15 agents rewrote everything from scratch as narrative chapters
-4. **Review & Revision**: 3 editorial reviewers produced 900 lines of feedback; 3 revision agents applied all fixes
-
-The entire process — from source extraction to final revised book — took approximately 6 hours.
+1. **把 AsyncGenerator 作为代理循环** - 产出 Messages，返回类型是 Terminal，天然支持背压和取消
+2. **投机式工具执行** - 在模型流式输出期间就启动只读工具，不必等响应结束
+3. **并发安全批处理** - 按安全性对工具分区，读取并行执行，写入串行执行
+4. **用 fork 代理共享缓存** - 并行子代理共享字节级相同的提示前缀，节省约 95% 的输入 token
+5. **4 层上下文压缩** - snip、microcompact、collapse、autocompact，层层递进
+6. **带 LLM 回忆的文件式记忆** - Sonnet 侧向查询选择相关记忆，而不是做关键词匹配
+7. **两阶段技能加载** - 启动时只加载 frontmatter，调用时再加载完整内容
+8. **用粘性锁存器保持缓存稳定** - 一旦发送过 beta header，就不要在会话中途取消
+9. **槽位预留** - 默认 8K 输出上限，命中后提升到 64K（在 99% 的请求里节省上下文）
+10. **Hooks 配置快照** - 启动时冻结，防止运行时注入攻击
 
 ---
 
-## Disclaimer
+## 这本书是怎么写出来的
 
-**This repository does not contain any source code from Claude Code.** All code blocks are original pseudocode using different variable names, written to illustrate architectural patterns. No proprietary prompt text, internal constants, or exact function implementations are included. This project exists purely for educational purposes — to help engineers understand the design patterns behind production AI coding agents.
+源码是从 npm 源码映射中提取的。36 个 AI 代理分四个阶段分析了近两千个 TypeScript 文件：
 
-The "NO'REILLY" cover is a parody/meme for illustrative purposes only. This project has no affiliation with O'Reilly Media. The crab is just a crab.
+1. **探索**：6 个并行代理阅读了源码树中的每一个文件
+2. **分析**：12 个代理写出了 494KB 的原始技术文档
+3. **写作**：15 个代理把所有内容重写成叙述性章节
+4. **审校与修订**：3 位编辑审校者提出了 900 行反馈；3 个修订代理完成了全部修改
 
-This is an independent analysis. Claude Code is a product of Anthropic. This book is not affiliated with, endorsed by, or sponsored by Anthropic.
+从源码提取到最终修订版成书，整个过程大约耗时 6 小时。
+
+---
+
+## 免责声明
+
+**本仓库不包含 Claude Code 的任何源代码。** 所有代码块都是原创伪代码，使用了不同的变量名，用来说明架构模式。未包含任何专有提示词、内部常量或精确函数实现。这个项目完全出于教学目的，帮助工程师理解生产级 AI 编码代理背后的设计模式。
+
+“NO'REILLY” 封面只是一个用于说明的恶搞/梗图，与真实的 O'Reilly Media 无关。这个项目与 O'Reilly Media 没有任何关联。那只螃蟹就是一只螃蟹。
+
+这是一份独立分析。Claude Code 是 Anthropic 的产品。本书与 Anthropic 无关联，也未获其认可或赞助。

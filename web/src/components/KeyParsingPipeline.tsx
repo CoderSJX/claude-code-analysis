@@ -42,72 +42,72 @@ interface KeyPreset {
 const stages: PipelineStage[] = [
   {
     id: "stdin",
-    label: "stdin Raw Bytes",
-    shortLabel: "stdin",
+    label: "stdin 原始字节",
+    shortLabel: "字节",
     description:
-      "Raw bytes arrive from the terminal. A single read() may contain a complete escape sequence or just a fragment. The tokenizer buffers partial sequences with a 50ms timeout.",
+      "原始字节从终端进入。一次 `read()` 可能拿到完整的 escape sequence，也可能只拿到残片。tokenizer 会用 50ms 超时窗口缓存未完成的序列。",
   },
   {
     id: "protocol",
-    label: "Protocol Detection",
-    shortLabel: "Protocol",
+    label: "协议识别",
+    shortLabel: "协议",
     description:
-      "Classify the byte sequence: Kitty keyboard protocol (CSI u), xterm modifyOtherKeys (CSI 27;mod;key~), legacy VT220, SGR mouse events, or bracketed paste.",
+      "对字节序列做分类：Kitty keyboard protocol（CSI u）、xterm modifyOtherKeys（CSI 27;mod;key~）、传统 VT220、SGR 鼠标事件或 bracketed paste。",
   },
   {
     id: "parse",
-    label: "Sequence Parsing",
-    shortLabel: "Parse",
+    label: "序列解析",
+    shortLabel: "解析",
     description:
-      "Decode the escape sequence into key identity + modifiers. XTerm convention: modifier = 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0) + (super?8:0).",
+      "把 escape sequence 解析成按键身份与修饰键。遵循 XTerm 约定：`modifier = 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0) + (super?8:0)`。",
   },
   {
     id: "event",
-    label: "Key Event Creation",
-    shortLabel: "Event",
+    label: "按键事件生成",
+    shortLabel: "事件",
     description:
-      "Structured ParsedKey object: { kind: 'key', name, ctrl, meta, shift, option, super, sequence, isPasted }. All ambiguity eliminated.",
+      "生成结构化的 `ParsedKey` 对象：`{ kind: 'key', name, ctrl, meta, shift, option, super, sequence, isPasted }`，所有歧义都会在这里被消除。",
   },
   {
     id: "binding",
-    label: "Keybinding Lookup",
-    shortLabel: "Binding",
+    label: "按键绑定查找",
+    shortLabel: "绑定",
     description:
-      "Match against the merged binding table across all 16 active contexts. Last matching binding wins (user overrides take precedence). Context list rebuilt on every keystroke.",
+      "在 16 个活动上下文合并后的绑定表里查找匹配项。最后匹配到的绑定生效，用户覆盖优先。上下文列表会在每次按键时重新计算。",
   },
   {
     id: "chord",
-    label: "Chord Handling",
-    shortLabel: "Chord",
+    label: "组合键处理",
+    shortLabel: "组合",
     description:
-      "If first half of a chord: wait up to 1000ms for the second half. ChordInterceptor captures all input during wait. Cancelled chords discard prefix but pass through the non-matching character.",
+      "如果这是一个组合键的前半段，系统会等待最多 1000ms 来接收第二段。等待期间 `ChordInterceptor` 会接管所有输入。取消的组合键会丢弃前缀，但不会吞掉不匹配的后续字符。",
   },
   {
     id: "action",
-    label: "Action Dispatch",
-    shortLabel: "Action",
+    label: "动作分发",
+    shortLabel: "动作",
     description:
-      "Execute the bound action handler. stopImmediatePropagation() prevents further processing. React batches all resulting state updates.",
+      "执行已绑定的动作处理器。`stopImmediatePropagation()` 会阻止后续继续处理，而 React 会把随后的状态更新统一批量提交。",
   },
 ];
 
 const keybindingContexts = [
-  "Global",
-  "Chat",
-  "Autocomplete",
-  "Confirmation",
-  "Scroll",
-  "Transcript",
-  "HistorySearch",
-  "Task",
-  "Help",
-  "MessageSelector",
-  "MessageActions",
-  "DiffDialog",
-  "Select",
-  "Settings",
-  "Tabs",
-  "Footer",
+  "全局",
+  "聊天",
+  "自动补全",
+  "确认弹窗",
+  "滚动",
+  "对话记录",
+  "历史搜索",
+  "任务",
+  "帮助",
+  "消息选择器",
+  "消息操作",
+  "Diff 对话框",
+  "选择",
+  "设置",
+  "标签页",
+  "底栏",
 ];
 
 const presets: KeyPreset[] = [
@@ -117,21 +117,21 @@ const presets: KeyPreset[] = [
     hexBytes: ["03"],
     protocol: "Control character (legacy)",
     parsedKey: { key: "c", ctrl: true, shift: false, meta: false },
-    matchedContext: "Global",
+    matchedContext: "全局",
     isChord: false,
     action: "app:interrupt",
-    actionDescription: "Interrupt current operation or exit",
+    actionDescription: "中断当前操作或退出",
   },
   {
-    name: "Arrow Up",
+    name: "上箭头",
     rawBytes: "\\x1b[A",
     hexBytes: ["1b", "5b", "41"],
     protocol: "Legacy VT220 (CSI sequence)",
     parsedKey: { key: "ArrowUp", ctrl: false, shift: false, meta: false },
-    matchedContext: "Chat",
+    matchedContext: "聊天",
     isChord: false,
     action: "history:previous",
-    actionDescription: "Navigate to previous history entry",
+    actionDescription: "切换到上一条历史记录",
   },
   {
     name: "Ctrl+Up",
@@ -139,10 +139,10 @@ const presets: KeyPreset[] = [
     hexBytes: ["1b", "5b", "31", "3b", "35", "41"],
     protocol: "xterm modifyOtherKeys",
     parsedKey: { key: "ArrowUp", ctrl: true, shift: false, meta: false },
-    matchedContext: "Scroll",
+    matchedContext: "滚动",
     isChord: false,
     action: "scroll:pageUp",
-    actionDescription: "Scroll up one page",
+    actionDescription: "向上翻一页",
   },
   {
     name: "Escape",
@@ -150,10 +150,10 @@ const presets: KeyPreset[] = [
     hexBytes: ["1b"],
     protocol: "Ambiguous (50ms timeout to distinguish from CSI prefix)",
     parsedKey: { key: "escape", ctrl: false, shift: false, meta: false },
-    matchedContext: "Chat",
+    matchedContext: "聊天",
     isChord: false,
     action: "chat:cancel",
-    actionDescription: "Cancel current input or operation",
+    actionDescription: "取消当前输入或当前操作",
   },
   {
     name: "Ctrl+X Ctrl+K",
@@ -161,7 +161,7 @@ const presets: KeyPreset[] = [
     hexBytes: ["18"],
     protocol: "Control character (ASCII CAN)",
     parsedKey: { key: "x", ctrl: true, shift: false, meta: false },
-    matchedContext: "Chat",
+    matchedContext: "聊天",
     isChord: true,
     chordSecond: {
       rawBytes: "\\x0b",
@@ -169,7 +169,7 @@ const presets: KeyPreset[] = [
       parsedKey: { key: "k", ctrl: true, shift: false, meta: false },
     },
     action: "chat:killAgents",
-    actionDescription: "Terminate all running sub-agents",
+    actionDescription: "终止所有正在运行的子智能体",
   },
   {
     name: "Ctrl+R",
@@ -177,10 +177,10 @@ const presets: KeyPreset[] = [
     hexBytes: ["12"],
     protocol: "Control character (ASCII DC2)",
     parsedKey: { key: "r", ctrl: true, shift: false, meta: false },
-    matchedContext: "Global",
+    matchedContext: "全局",
     isChord: false,
     action: "history:search",
-    actionDescription: "Open reverse history search",
+    actionDescription: "打开反向历史搜索",
   },
 ];
 
@@ -391,7 +391,7 @@ export default function KeyParsingPipeline({ className }: Props) {
               fontWeight: 600,
             }}
           >
-            Key Parsing Pipeline
+            按键解析流水线
           </span>
           <span
             style={{
@@ -399,7 +399,7 @@ export default function KeyParsingPipeline({ className }: Props) {
               color: colors.textSecondary,
             }}
           >
-            Chapter 14 -- Input & Interaction
+            第 14 章 · 输入与交互
           </span>
         </div>
         {(selectedPreset || activeStageIndex >= 0) && (
@@ -416,7 +416,7 @@ export default function KeyParsingPipeline({ className }: Props) {
               cursor: "pointer",
             }}
           >
-            Reset
+            重置
           </button>
         )}
       </div>
@@ -439,7 +439,7 @@ export default function KeyParsingPipeline({ className }: Props) {
             marginBottom: 8,
           }}
         >
-          Press a key (or pick a preset):
+          按下一个键，或者直接选择一个预设：
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {presets.map((preset) => (
@@ -480,7 +480,7 @@ export default function KeyParsingPipeline({ className }: Props) {
                     opacity: 0.6,
                   }}
                 >
-                  (chord)
+                    （组合键）
                 </span>
               )}
             </button>
